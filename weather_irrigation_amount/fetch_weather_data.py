@@ -13,7 +13,7 @@ params = {
     "start_date": "2022-01-01",
     "end_date": "2025-12-31",
     "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,et0_fao_evapotranspiration,shortwave_radiation_sum",
-    "hourly": "soil_moisture_0_to_7cm,relative_humidity_2m,vapor_pressure_deficit,wind_speed_10m",
+    "hourly": "soil_moisture_0_to_7cm,relative_humidity_2m,vapor_pressure_deficit,wind_speed_10m,cloud_cover",
     "timezone": "Africa/Nairobi"
 }
 
@@ -32,6 +32,7 @@ if response.status_code == 200:
     # Process hourly data
     df_hourly['time'] = pd.to_datetime(df_hourly['time'])
     df_hourly['date'] = df_hourly['time'].dt.strftime('%Y-%m-%d')
+    # Aggregate hourly signals into daily means so they align with the daily API fields.
     daily_aggregated = df_hourly.groupby('date').mean(numeric_only=True).reset_index()
     daily_aggregated.rename(columns={'date': 'time'}, inplace=True)
     
@@ -51,6 +52,7 @@ if response.status_code == 200:
         "relative_humidity_2m",
         "vapor_pressure_deficit",
         "wind_speed_10m",
+        "cloud_cover",
         "precipitation_sum",
         "et0_fao_evapotranspiration",
         "precipitation",

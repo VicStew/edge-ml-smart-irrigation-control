@@ -16,8 +16,10 @@ nb["cells"] = [
     nbf.v4.new_code_cell(
         "import warnings\n"
         "warnings.filterwarnings('ignore')\n\n"
+        "import matplotlib.pyplot as plt\n"
         "import numpy as np\n"
         "import pandas as pd\n"
+        "import seaborn as sns\n"
         "import tensorflow as tf\n"
         "from sklearn.metrics import mean_absolute_error, r2_score\n"
         "from tensorflow.keras import Sequential\n"
@@ -25,6 +27,7 @@ nb["cells"] = [
         "from tensorflow.keras.layers import Dense, Dropout, Input\n\n"
         "tf.keras.utils.set_random_seed(42)\n"
         "np.random.seed(42)\n"
+        "sns.set_theme(style='whitegrid')\n"
     ),
     nbf.v4.new_markdown_cell("## 2. Load Dataset"),
     nbf.v4.new_code_cell(
@@ -33,7 +36,46 @@ nb["cells"] = [
         "df = df.sort_values('time').reset_index(drop=True)\n"
         "print(f'Loaded {len(df)} daily weather rows.')"
     ),
-    nbf.v4.new_markdown_cell("## 3. Feature Engineering"),
+    nbf.v4.new_markdown_cell("## 3. Feature Relationships"),
+    nbf.v4.new_code_cell(
+        "eda_cols = [\n"
+        "    'temperature_2m_max',\n"
+        "    'temperature_2m_min',\n"
+        "    'precipitation',\n"
+        "    'evapotranspiration',\n"
+        "    'shortwave_radiation_sum',\n"
+        "    'soil_moisture_0_to_7cm',\n"
+        "    'relative_humidity_2m',\n"
+        "    'vapor_pressure_deficit',\n"
+        "    'wind_speed_10m',\n"
+        "    'cloud_cover',\n"
+        "]\n"
+        "eda_cols = [col for col in eda_cols if col in df.columns]\n\n"
+        "corr = df[eda_cols].corr(numeric_only=True)\n"
+        "plt.figure(figsize=(10, 8))\n"
+        "sns.heatmap(corr, annot=True, fmt='.2f', cmap='coolwarm', center=0, square=True)\n"
+        "plt.title('Correlation Heatmap for Core Weather Features')\n"
+        "plt.tight_layout()\n"
+        "plt.show()\n"
+    ),
+    nbf.v4.new_code_cell(
+        "pairplot_cols = [\n"
+        "    'temperature_2m_max',\n"
+        "    'temperature_2m_min',\n"
+        "    'relative_humidity_2m',\n"
+        "    'vapor_pressure_deficit',\n"
+        "    'wind_speed_10m',\n"
+        "    'cloud_cover',\n"
+        "    'precipitation',\n"
+        "    'evapotranspiration',\n"
+        "]\n"
+        "pairplot_cols = [col for col in pairplot_cols if col in df.columns]\n\n"
+        "# Downsample rows so the pairplot remains readable in the notebook.\n"
+        "pairplot_df = df[pairplot_cols].sample(n=min(len(df), 400), random_state=42)\n"
+        "sns.pairplot(pairplot_df, corner=True, diag_kind='hist', plot_kws={'alpha': 0.55, 's': 18})\n"
+        "plt.show()\n"
+    ),
+    nbf.v4.new_markdown_cell("## 4. Feature Engineering"),
     nbf.v4.new_code_cell(
         "weather_cols = [\n"
         "    'temperature_2m_max',\n"
@@ -45,10 +87,25 @@ nb["cells"] = [
         "    'relative_humidity_2m',\n"
         "    'vapor_pressure_deficit',\n"
         "    'wind_speed_10m',\n"
-        "]\n\n"
+        "    'cloud_cover',\n"
+        "]\n"
+        "weather_cols = [col for col in weather_cols if col in df.columns]\n\n"
         "lag_days = range(1, 8)\n"
         "# Include current-day signals alongside lagged and rolling history.\n"
         "feature_cols = weather_cols.copy()\n\n"
+        "df['temperature_range'] = df['temperature_2m_max'] - df['temperature_2m_min']\n"
+        "df['humidity_vpd_product'] = df['relative_humidity_2m'] * df['vapor_pressure_deficit']\n"
+        "df['soil_humidity_product'] = df['soil_moisture_0_to_7cm'] * df['relative_humidity_2m']\n"
+        "df['radiation_vpd_product'] = df['shortwave_radiation_sum'] * df['vapor_pressure_deficit']\n"
+        "feature_cols.extend([\n"
+        "    'temperature_range',\n"
+        "    'humidity_vpd_product',\n"
+        "    'soil_humidity_product',\n"
+        "    'radiation_vpd_product',\n"
+        "])\n"
+        "if 'cloud_cover' in df.columns:\n"
+        "    df['cloud_radiation_product'] = df['cloud_cover'] * df['shortwave_radiation_sum']\n"
+        "    feature_cols.append('cloud_radiation_product')\n\n"
         "for col in weather_cols:\n"
         "    for lag in lag_days:\n"
         "        feature_name = f'{col}_lag_{lag}'\n"
@@ -75,7 +132,7 @@ nb["cells"] = [
         "print(f'Input shape: {X.shape}')\n"
         "print(f'Target shape: {y.shape}')"
     ),
-    nbf.v4.new_markdown_cell("## 4. Train/Test Split & Scaling"),
+    nbf.v4.new_markdown_cell("## 5. Train/Test Split & Scaling"),
     nbf.v4.new_code_cell(
         "split_idx = int(len(df) * 0.8)\n\n"
         "X_train, X_test = X[:split_idx], X[split_idx:]\n"
@@ -96,7 +153,7 @@ nb["cells"] = [
         "print(f'Training rows: {len(X_train)}')\n"
         "print(f'Testing rows: {len(X_test)}')"
     ),
-    nbf.v4.new_markdown_cell("## 5. Unified MLP Architecture"),
+    nbf.v4.new_markdown_cell("## 6. Unified MLP Architecture"),
     nbf.v4.new_code_cell(
         "model = Sequential([\n"
         "    Input(shape=(X_train_scaled.shape[1],)),\n"
@@ -112,7 +169,7 @@ nb["cells"] = [
         ")\n"
         "model.summary()"
     ),
-    nbf.v4.new_markdown_cell("## 6. Train Model"),
+    nbf.v4.new_markdown_cell("## 7. Train Model"),
     nbf.v4.new_code_cell(
         "callbacks = [\n"
         "    EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True),\n"
@@ -130,7 +187,7 @@ nb["cells"] = [
         "print(f\"Training stopped after {len(history.history['loss'])} epochs.\")\n"
         "print(f\"Best val_loss: {min(history.history['val_loss']):.4f}\")"
     ),
-    nbf.v4.new_markdown_cell("## 7. Performance Evaluation"),
+    nbf.v4.new_markdown_cell("## 8. Performance Evaluation"),
     nbf.v4.new_code_cell(
         "pred_scaled = model.predict(X_test_scaled, verbose=0)\n"
         "pred = (pred_scaled * y_std) + y_mean\n\n"
@@ -147,7 +204,7 @@ nb["cells"] = [
         "print('\\n========== EVAPOTRANSPIRATION (Unified) ==========')\n"
         "print(f'MAE: {mae_e:.3f} mm  | R²: {r2_e:.3f}')"
     ),
-    nbf.v4.new_markdown_cell("## 8. Export to TFLite"),
+    nbf.v4.new_markdown_cell("## 9. Export to TFLite"),
     nbf.v4.new_code_cell(
         "converter = tf.lite.TFLiteConverter.from_keras_model(model)\n"
         "converter.optimizations = [tf.lite.Optimize.DEFAULT]\n"
@@ -156,7 +213,7 @@ nb["cells"] = [
         "    f.write(tflite_model)\n\n"
         "print(f'Saved unified_weather_model.tflite ({len(tflite_model)} bytes)')"
     ),
-    nbf.v4.new_markdown_cell("## 9. Generate C Array"),
+    nbf.v4.new_markdown_cell("## 10. Generate C Array"),
     nbf.v4.new_code_cell(
         "def convert_tflite_to_c_array(tflite_path, c_file_path, array_name):\n"
         "    with open(tflite_path, 'rb') as f:\n"
