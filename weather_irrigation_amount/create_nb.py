@@ -6,136 +6,184 @@ BASE_DIR = Path(__file__).resolve().parent
 
 nb = nbf.v4.new_notebook()
 
-nb['cells'] = [
-    nbf.v4.new_markdown_cell("# Unified Multi-Output Weather Model (ESP32)\n\nThis notebook trains a single Dense (MLP) model to simultaneously predict precipitation and evapotranspiration using the expanded weather dataset."),
-    
+nb["cells"] = [
+    nbf.v4.new_markdown_cell(
+        "# Unified Multi-Output Weather Model (ESP32)\n\n"
+        "This notebook trains a single Dense (MLP) model to predict next-day "
+        "precipitation and evapotranspiration from the expanded weather dataset."
+    ),
     nbf.v4.new_markdown_cell("## 1. Import Libraries"),
-    nbf.v4.new_code_cell("import pandas as pd\nimport numpy as np\nimport tensorflow as tf\nfrom tensorflow.keras.models import Sequential\nfrom tensorflow.keras.layers import Dense, Input, Flatten\nfrom sklearn.metrics import mean_absolute_error, r2_score\nimport warnings\nwarnings.filterwarnings('ignore')"),
-
+    nbf.v4.new_code_cell(
+        "import warnings\n"
+        "warnings.filterwarnings('ignore')\n\n"
+        "import numpy as np\n"
+        "import pandas as pd\n"
+        "import tensorflow as tf\n"
+        "from sklearn.metrics import mean_absolute_error, r2_score\n"
+        "from tensorflow.keras import Sequential\n"
+        "from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau\n"
+        "from tensorflow.keras.layers import Dense, Dropout, Input\n\n"
+        "tf.keras.utils.set_random_seed(42)\n"
+        "np.random.seed(42)\n"
+    ),
     nbf.v4.new_markdown_cell("## 2. Load Dataset"),
-    nbf.v4.new_code_cell("df = pd.read_csv('historical_weather_data.csv')\ndf['time'] = pd.to_datetime(df['time'])\ndf = df.sort_values('time').reset_index(drop=True)\nprint(f'Loaded {len(df)} days of historical weather data.')"),
-
+    nbf.v4.new_code_cell(
+        "df = pd.read_csv('historical_weather_data.csv')\n"
+        "df['time'] = pd.to_datetime(df['time'])\n"
+        "df = df.sort_values('time').reset_index(drop=True)\n"
+        "print(f'Loaded {len(df)} daily weather rows.')"
+    ),
     nbf.v4.new_markdown_cell("## 3. Feature Engineering"),
-    nbf.v4.new_code_cell("""weather_cols = ['temperature_2m_max', 'temperature_2m_min', 'precipitation_sum', 'et0_fao_evapotranspiration', 'shortwave_radiation_sum', 'soil_moisture_0_to_7cm', 'relative_humidity_2m', 'vapor_pressure_deficit', 'wind_speed_10m']
-
-for col in weather_cols:
-    for i in range(1, 4):
-        df[f'{col}_lag_{i}'] = df[col].shift(i)
-
-df['target_precipitation'] = df['precipitation'].shift(-1)
-df['target_evapotranspiration'] = df['evapotranspiration'].shift(-1)
-df.dropna(inplace=True)
-df.reset_index(drop=True, inplace=True)
-
-X_3d = np.zeros((len(df), 3, len(weather_cols)))
-for i, col in enumerate(weather_cols):
-    X_3d[:, 0, i] = df[f'{col}_lag_3']
-    X_3d[:, 1, i] = df[f'{col}_lag_2']
-    X_3d[:, 2, i] = df[f'{col}_lag_1']
-
-# Unified multi-output target array: shape (N, 2)
-y = np.column_stack((df['target_precipitation'].values, df['target_evapotranspiration'].values))
-
-print(f'Input Shape: {X_3d.shape}')
-print(f'Target Shape: {y.shape}')
-"""),
-
-    nbf.v4.new_markdown_cell("## 4. Train/Test Split & Normalization"),
-    nbf.v4.new_code_cell("""split_idx = int(len(df) * 0.8)
-
-X_train, X_test = X_3d[:split_idx], X_3d[split_idx:]
-y_train, y_test = y[:split_idx], y[split_idx:]
-
-X_mean = X_train.mean(axis=0)
-X_std = X_train.std(axis=0)
-X_std[X_std == 0] = 1e-6
-
-X_train_scaled = (X_train - X_mean) / X_std
-X_test_scaled = (X_test - X_mean) / X_std
-
-np.save('X_mean_unified.npy', X_mean)
-np.save('X_std_unified.npy', X_std)
-print(f'Training on {len(X_train)} days, Testing on {len(X_test)} days.')
-"""),
-
-    nbf.v4.new_markdown_cell("## 5. Unified Model Architecture"),
-    nbf.v4.new_code_cell("""model = Sequential([
-    Input(shape=(3, len(weather_cols))),
-    Flatten(),
-    Dense(32, activation='relu'),
-    Dense(16, activation='relu'),
-    Dense(2) # 2 Outputs: [Precipitation, ET0]
-])
-
-model.compile(optimizer='adam', loss='mse')
-print(model.summary())
-"""),
-
+    nbf.v4.new_code_cell(
+        "weather_cols = [\n"
+        "    'temperature_2m_max',\n"
+        "    'temperature_2m_min',\n"
+        "    'precipitation',\n"
+        "    'evapotranspiration',\n"
+        "    'shortwave_radiation_sum',\n"
+        "    'soil_moisture_0_to_7cm',\n"
+        "    'relative_humidity_2m',\n"
+        "    'vapor_pressure_deficit',\n"
+        "    'wind_speed_10m',\n"
+        "]\n\n"
+        "lag_days = range(1, 8)\n"
+        "# Include current-day signals alongside lagged and rolling history.\n"
+        "feature_cols = weather_cols.copy()\n\n"
+        "for col in weather_cols:\n"
+        "    for lag in lag_days:\n"
+        "        feature_name = f'{col}_lag_{lag}'\n"
+        "        df[feature_name] = df[col].shift(lag)\n"
+        "        feature_cols.append(feature_name)\n"
+        "    for window in (3, 7):\n"
+        "        feature_name = f'{col}_roll_{window}'\n"
+        "        df[feature_name] = df[col].shift(1).rolling(window).mean()\n"
+        "        feature_cols.append(feature_name)\n\n"
+        "day_of_year = df['time'].dt.dayofyear\n"
+        "df['day_of_year_sin'] = np.sin(2 * np.pi * day_of_year / 365.25)\n"
+        "df['day_of_year_cos'] = np.cos(2 * np.pi * day_of_year / 365.25)\n"
+        "feature_cols.extend(['day_of_year_sin', 'day_of_year_cos'])\n\n"
+        "df['target_precipitation'] = df['precipitation'].shift(-1)\n"
+        "df['target_evapotranspiration'] = df['evapotranspiration'].shift(-1)\n"
+        "df = df.dropna().reset_index(drop=True)\n\n"
+        "X = df[feature_cols].to_numpy(dtype=np.float32)\n"
+        "# Log-scaling stabilizes the more skewed precipitation target.\n"
+        "y = np.column_stack([\n"
+        "    np.log1p(df['target_precipitation'].to_numpy(dtype=np.float32)),\n"
+        "    df['target_evapotranspiration'].to_numpy(dtype=np.float32),\n"
+        "]).astype(np.float32)\n\n"
+        "print(f'Feature count: {len(feature_cols)}')\n"
+        "print(f'Input shape: {X.shape}')\n"
+        "print(f'Target shape: {y.shape}')"
+    ),
+    nbf.v4.new_markdown_cell("## 4. Train/Test Split & Scaling"),
+    nbf.v4.new_code_cell(
+        "split_idx = int(len(df) * 0.8)\n\n"
+        "X_train, X_test = X[:split_idx], X[split_idx:]\n"
+        "y_train, y_test = y[:split_idx], y[split_idx:]\n\n"
+        "X_mean = X_train.mean(axis=0)\n"
+        "X_std = X_train.std(axis=0)\n"
+        "X_std[X_std == 0] = 1e-6\n\n"
+        "y_mean = y_train.mean(axis=0)\n"
+        "y_std = y_train.std(axis=0)\n"
+        "y_std[y_std == 0] = 1e-6\n\n"
+        "X_train_scaled = (X_train - X_mean) / X_std\n"
+        "X_test_scaled = (X_test - X_mean) / X_std\n"
+        "y_train_scaled = (y_train - y_mean) / y_std\n\n"
+        "np.save('X_mean_unified.npy', X_mean)\n"
+        "np.save('X_std_unified.npy', X_std)\n"
+        "np.save('y_mean_unified.npy', y_mean)\n"
+        "np.save('y_std_unified.npy', y_std)\n\n"
+        "print(f'Training rows: {len(X_train)}')\n"
+        "print(f'Testing rows: {len(X_test)}')"
+    ),
+    nbf.v4.new_markdown_cell("## 5. Unified MLP Architecture"),
+    nbf.v4.new_code_cell(
+        "model = Sequential([\n"
+        "    Input(shape=(X_train_scaled.shape[1],)),\n"
+        "    Dense(128, activation='relu'),\n"
+        "    Dropout(0.15),\n"
+        "    Dense(64, activation='relu'),\n"
+        "    Dense(32, activation='relu'),\n"
+        "    Dense(2),\n"
+        "])\n\n"
+        "model.compile(\n"
+        "    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),\n"
+        "    loss='mse',\n"
+        ")\n"
+        "model.summary()"
+    ),
     nbf.v4.new_markdown_cell("## 6. Train Model"),
-    nbf.v4.new_code_cell("""print("Training Unified Model...")
-model.fit(X_train_scaled, y_train, epochs=60, batch_size=16, verbose=0, validation_data=(X_test_scaled, y_test))
-print("Training complete.")
-"""),
-
+    nbf.v4.new_code_cell(
+        "callbacks = [\n"
+        "    EarlyStopping(monitor='val_loss', patience=20, restore_best_weights=True),\n"
+        "    ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=8, min_lr=1e-5),\n"
+        "]\n\n"
+        "history = model.fit(\n"
+        "    X_train_scaled,\n"
+        "    y_train_scaled,\n"
+        "    validation_split=0.2,\n"
+        "    epochs=300,\n"
+        "    batch_size=32,\n"
+        "    verbose=0,\n"
+        "    callbacks=callbacks,\n"
+        ")\n\n"
+        "print(f\"Training stopped after {len(history.history['loss'])} epochs.\")\n"
+        "print(f\"Best val_loss: {min(history.history['val_loss']):.4f}\")"
+    ),
     nbf.v4.new_markdown_cell("## 7. Performance Evaluation"),
-    nbf.v4.new_code_cell("""preds = model.predict(X_test_scaled, verbose=0)
-
-# Slice outputs
-pred_precip = preds[:, 0]
-pred_evapotranspiration = preds[:, 1]
-y_test_precip = y_test[:, 0]
-y_test_evapotranspiration = y_test[:, 1]
-
-mae_p = mean_absolute_error(y_test_precip, pred_precip)
-r2_p = r2_score(y_test_precip, pred_precip)
-
-mae_e = mean_absolute_error(y_test_evapotranspiration, pred_evapotranspiration)
-r2_e = r2_score(y_test_evapotranspiration, pred_evapotranspiration)
-
-print("========== PRECIPITATION (Unified) ==========")
-print(f"MAE: {mae_p:.3f} mm  | R²: {r2_p:.3f}")
-print("\\n========== EVAPOTRANSPIRATION (Unified) ==========")
-print(f"MAE: {mae_e:.3f} mm  | R²: {r2_e:.3f}")
-"""),
-
+    nbf.v4.new_code_cell(
+        "pred_scaled = model.predict(X_test_scaled, verbose=0)\n"
+        "pred = (pred_scaled * y_std) + y_mean\n\n"
+        "pred_precip = np.expm1(pred[:, 0]).clip(min=0)\n"
+        "pred_evapotranspiration = pred[:, 1]\n\n"
+        "y_test_precip = np.expm1(y_test[:, 0])\n"
+        "y_test_evapotranspiration = y_test[:, 1]\n\n"
+        "mae_p = mean_absolute_error(y_test_precip, pred_precip)\n"
+        "r2_p = r2_score(y_test_precip, pred_precip)\n\n"
+        "mae_e = mean_absolute_error(y_test_evapotranspiration, pred_evapotranspiration)\n"
+        "r2_e = r2_score(y_test_evapotranspiration, pred_evapotranspiration)\n\n"
+        "print('========== PRECIPITATION (Unified) ==========')\n"
+        "print(f'MAE: {mae_p:.3f} mm  | R²: {r2_p:.3f}')\n"
+        "print('\\n========== EVAPOTRANSPIRATION (Unified) ==========')\n"
+        "print(f'MAE: {mae_e:.3f} mm  | R²: {r2_e:.3f}')"
+    ),
     nbf.v4.new_markdown_cell("## 8. Export to TFLite"),
-    nbf.v4.new_code_cell("""converter = tf.lite.TFLiteConverter.from_keras_model(model)
-converter.optimizations = [tf.lite.Optimize.DEFAULT]
-tflite_model = converter.convert()
-
-with open('unified_weather_model.tflite', 'wb') as f:
-    f.write(tflite_model)
-print(f'Saved unified_weather_model.tflite ({len(tflite_model)} bytes)')
-"""),
-
+    nbf.v4.new_code_cell(
+        "converter = tf.lite.TFLiteConverter.from_keras_model(model)\n"
+        "converter.optimizations = [tf.lite.Optimize.DEFAULT]\n"
+        "tflite_model = converter.convert()\n\n"
+        "with open('unified_weather_model.tflite', 'wb') as f:\n"
+        "    f.write(tflite_model)\n\n"
+        "print(f'Saved unified_weather_model.tflite ({len(tflite_model)} bytes)')"
+    ),
     nbf.v4.new_markdown_cell("## 9. Generate C Array"),
-    nbf.v4.new_code_cell("""def convert_tflite_to_c_array(tflite_path, c_file_path, array_name):
-    with open(tflite_path, 'rb') as f:
-        tflite_content = f.read()
-
-    hex_array = [f'0x{b:02x}' for b in tflite_content]
-    
-    with open(c_file_path, 'w') as f:
-        f.write(f'#include "{array_name}.h"\\n\\n')
-        f.write(f'const unsigned char {array_name}[] = {{\\n')
-        for i in range(0, len(hex_array), 12):
-            f.write('  ' + ', '.join(hex_array[i:i+12]) + ',\\n')
-        f.write('};\\n\\n')
-        f.write(f'const int {array_name}_len = {len(hex_array)};\\n')
-
-    h_file_path = c_file_path.replace('.cc', '.h')
-    with open(h_file_path, 'w') as f:
-        f.write(f'#ifndef {array_name.upper()}_H\\n')
-        f.write(f'#define {array_name.upper()}_H\\n\\n')
-        f.write(f'extern const unsigned char {array_name}[];\\n')
-        f.write(f'extern const int {array_name}_len;\\n\\n')
-        f.write(f'#endif // {array_name.upper()}_H\\n')
-        
-    print(f'Generated {c_file_path} and {h_file_path}')
-
-convert_tflite_to_c_array('unified_weather_model.tflite', 'unified_weather_model.cc', 'unified_weather_model_tflite')
-""")
+    nbf.v4.new_code_cell(
+        "def convert_tflite_to_c_array(tflite_path, c_file_path, array_name):\n"
+        "    with open(tflite_path, 'rb') as f:\n"
+        "        tflite_content = f.read()\n\n"
+        "    hex_array = [f'0x{b:02x}' for b in tflite_content]\n\n"
+        "    with open(c_file_path, 'w') as f:\n"
+        "        f.write(f'#include \"{array_name}.h\"\\n\\n')\n"
+        "        f.write(f'const unsigned char {array_name}[] = {{\\n')\n"
+        "        for i in range(0, len(hex_array), 12):\n"
+        "            f.write('  ' + ', '.join(hex_array[i:i + 12]) + ',\\n')\n"
+        "        f.write('};\\n\\n')\n"
+        "        f.write(f'const int {array_name}_len = {len(hex_array)};\\n')\n\n"
+        "    h_file_path = c_file_path.replace('.cc', '.h')\n"
+        "    with open(h_file_path, 'w') as f:\n"
+        "        f.write(f'#ifndef {array_name.upper()}_H\\n')\n"
+        "        f.write(f'#define {array_name.upper()}_H\\n\\n')\n"
+        "        f.write(f'extern const unsigned char {array_name}[];\\n')\n"
+        "        f.write(f'extern const int {array_name}_len;\\n\\n')\n"
+        "        f.write(f'#endif // {array_name.upper()}_H\\n')\n\n"
+        "    print(f'Generated {c_file_path} and {h_file_path}')\n\n"
+        "convert_tflite_to_c_array(\n"
+        "    'unified_weather_model.tflite',\n"
+        "    'unified_weather_model.cc',\n"
+        "    'unified_weather_model_tflite',\n"
+        ")"
+    ),
 ]
 
-with open(BASE_DIR / 'weather_forecasting_model.ipynb', 'w') as f:
+with open(BASE_DIR / "weather_forecasting_model.ipynb", "w") as f:
     nbf.write(nb, f)
