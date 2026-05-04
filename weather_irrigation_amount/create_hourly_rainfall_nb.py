@@ -10,9 +10,10 @@ nb = nbf.v4.new_notebook()
 nb["cells"] = [
     nbf.v4.new_markdown_cell(
         "# Hourly Rainfall Forecasting For Irrigation\n\n"
-        "This notebook trains an hourly rainfall forecasting package using only timestamp-derived features "
-        "available at inference time: date, month, and time. It compares a machine-learning challenger "
-        "against a month-hour climatology baseline and exports the best serving configuration."
+        "This notebook trains and evaluates an hourly rainfall forecasting workflow from a dedicated "
+        "`historical_weather_data_hourly.csv` file. The historical dataset stores hourly Open-Meteo signals "
+        "that are relevant to rainfall behavior, while the deployed model is intentionally restricted to "
+        "timestamp-derived inputs only: date, month, and time."
     ),
     nbf.v4.new_markdown_cell("## 1. Imports"),
     nbf.v4.new_code_cell(
@@ -32,7 +33,7 @@ nb["cells"] = [
         "RAIN_THRESHOLD_MM = 0.1\n"
         "np.random.seed(42)\n"
     ),
-    nbf.v4.new_markdown_cell("## 2. Load Hourly Weather History"),
+    nbf.v4.new_markdown_cell("## 2. Load Dedicated Hourly Data"),
     nbf.v4.new_code_cell(
         "if not DATA_PATH.exists():\n"
         "    raise FileNotFoundError(\n"
@@ -40,44 +41,64 @@ nb["cells"] = [
         "    )\n\n"
         "df = pd.read_csv(DATA_PATH, parse_dates=['time'])\n"
         "df = df.sort_values('time').reset_index(drop=True)\n"
-        "df['precipitation_mm'] = df['precipitation_mm'].clip(lower=0)\n"
-        "df['rain_occurrence'] = (df['precipitation_mm'] >= RAIN_THRESHOLD_MM).astype(int)\n"
-        "print(df[['time', 'precipitation_mm', 'rain_occurrence']].head())\n"
+        "df['rain_mm'] = df['rain_mm'].clip(lower=0)\n"
+        "df['rain_occurrence'] = (df['rain_mm'] >= RAIN_THRESHOLD_MM).astype(int)\n"
+        "hourly_columns = [\n"
+        "    'precipitation_probability',\n"
+        "    'rain',\n"
+        "    'cloud_cover',\n"
+        "    'et0_fao_evapotranspiration',\n"
+        "    'soil_temperature_0_to_7cm',\n"
+        "    'soil_moisture_0_to_7cm',\n"
+        "]\n"
+        "print(df[['time', 'rain_mm', 'rain_occurrence'] + hourly_columns].head())\n"
         "print(f'Loaded {len(df):,} hourly rows from {df.time.min()} to {df.time.max()}')\n"
     ),
-    nbf.v4.new_markdown_cell("## 3. Calendar Feature Engineering"),
+    nbf.v4.new_markdown_cell("## 3. Hourly Schema Check"),
+    nbf.v4.new_code_cell(
+        "schema_summary = df[[\n"
+        "    'rain_mm',\n"
+        "    'precipitation_probability',\n"
+        "    'cloud_cover',\n"
+        "    'et0_fao_evapotranspiration',\n"
+        "    'soil_temperature_0_to_7cm',\n"
+        "    'soil_moisture_0_to_7cm',\n"
+        "]].describe().T\n"
+        "schema_summary\n"
+    ),
+    nbf.v4.new_markdown_cell("## 4. Calendar Feature Engineering"),
     nbf.v4.new_code_cell(
         "def cyclical_columns(values: pd.Series, period: float, prefix: str, harmonics: int = 1) -> dict[str, np.ndarray]:\n"
         "    angles = 2 * np.pi * values.to_numpy(dtype=float) / period\n"
-        "    out = {}\n"
+        "    features = {}\n"
         "    for harmonic in range(1, harmonics + 1):\n"
-        "        out[f'{prefix}_sin_{harmonic}'] = np.sin(harmonic * angles)\n"
-        "        out[f'{prefix}_cos_{harmonic}'] = np.cos(harmonic * angles)\n"
-        "    return out\n\n"
+        "        features[f'{prefix}_sin_{harmonic}'] = np.sin(harmonic * angles)\n"
+        "        features[f'{prefix}_cos_{harmonic}'] = np.cos(harmonic * angles)\n"
+        "    return features\n\n"
         "def build_climatology(frame: pd.DataFrame) -> dict:\n"
         "    train = frame.copy()\n"
         "    train['month'] = train['time'].dt.month\n"
         "    train['hour'] = train['time'].dt.hour\n"
         "    train['day_of_year'] = train['time'].dt.dayofyear\n"
-        "    month_hour = train.groupby(['month', 'hour'])[['precipitation_mm', 'rain_occurrence']].mean().reset_index()\n"
-        "    doy_hour = train.groupby(['day_of_year', 'hour'])[['precipitation_mm', 'rain_occurrence']].mean().reset_index()\n"
+        "    month_hour = train.groupby(['month', 'hour'])[['rain_mm', 'rain_occurrence']].mean().reset_index()\n"
+        "    doy_hour = train.groupby(['day_of_year', 'hour'])[['rain_mm', 'rain_occurrence']].mean().reset_index()\n"
         "    return {\n"
-        "        'month_hour_amount': {(int(r.month), int(r.hour)): float(r.precipitation_mm) for r in month_hour.itertuples()},\n"
+        "        'month_hour_amount': {(int(r.month), int(r.hour)): float(r.rain_mm) for r in month_hour.itertuples()},\n"
         "        'month_hour_probability': {(int(r.month), int(r.hour)): float(r.rain_occurrence) for r in month_hour.itertuples()},\n"
-        "        'doy_hour_amount': {(int(r.day_of_year), int(r.hour)): float(r.precipitation_mm) for r in doy_hour.itertuples()},\n"
+        "        'doy_hour_amount': {(int(r.day_of_year), int(r.hour)): float(r.rain_mm) for r in doy_hour.itertuples()},\n"
         "        'doy_hour_probability': {(int(r.day_of_year), int(r.hour)): float(r.rain_occurrence) for r in doy_hour.itertuples()},\n"
-        "        'global_amount': float(train['precipitation_mm'].mean()),\n"
+        "        'global_amount': float(train['rain_mm'].mean()),\n"
         "        'global_probability': float(train['rain_occurrence'].mean()),\n"
         "    }\n\n"
         "def build_features(timestamps: pd.Series, climatology: dict) -> pd.DataFrame:\n"
         "    ts = pd.to_datetime(timestamps)\n"
         "    month = ts.dt.month\n"
         "    hour = ts.dt.hour\n"
+        "    minute = ts.dt.minute\n"
         "    day_of_year = ts.dt.dayofyear\n"
         "    day_of_week = ts.dt.dayofweek\n"
         "    day_of_month = ts.dt.day\n"
-        "    minute = ts.dt.minute\n"
-        "    year_index = ts.dt.year - ts.dt.year.min()\n\n"
+        "    year_index = ts.dt.year - ts.dt.year.min()\n"
         "    month_hour_keys = list(zip(month, hour))\n"
         "    doy_hour_keys = list(zip(day_of_year, hour))\n\n"
         "    features = {\n"
@@ -95,7 +116,7 @@ nb["cells"] = [
         "    features.update(cyclical_columns(day_of_month, 31.0, 'dom'))\n"
         "    return pd.DataFrame(features, index=ts.index).astype(float)\n"
     ),
-    nbf.v4.new_markdown_cell("## 4. Time-Based Split And Baseline"),
+    nbf.v4.new_markdown_cell("## 5. Time-Based Train/Test Split"),
     nbf.v4.new_code_cell(
         "split_idx = int(len(df) * 0.8)\n"
         "train_df = df.iloc[:split_idx].copy()\n"
@@ -103,8 +124,8 @@ nb["cells"] = [
         "climatology = build_climatology(train_df)\n\n"
         "X_train = build_features(train_df['time'], climatology)\n"
         "X_test = build_features(test_df['time'], climatology)\n"
-        "y_train_amount = train_df['precipitation_mm'].to_numpy(dtype=float)\n"
-        "y_test_amount = test_df['precipitation_mm'].to_numpy(dtype=float)\n"
+        "y_train_amount = train_df['rain_mm'].to_numpy(dtype=float)\n"
+        "y_test_amount = test_df['rain_mm'].to_numpy(dtype=float)\n"
         "y_train_rain = train_df['rain_occurrence'].to_numpy(dtype=int)\n"
         "y_test_rain = test_df['rain_occurrence'].to_numpy(dtype=int)\n\n"
         "month_hour_keys_test = list(zip(test_df['time'].dt.month, test_df['time'].dt.hour))\n"
@@ -117,7 +138,7 @@ nb["cells"] = [
         "print(f'Test rows: {len(test_df):,}')\n"
         "print(f'Feature count: {X_train.shape[1]}')\n"
     ),
-    nbf.v4.new_markdown_cell("## 5. Hyperparameter Search"),
+    nbf.v4.new_markdown_cell("## 6. Hyperparameter Search"),
     nbf.v4.new_code_cell(
         "def amount_metrics(y_true, y_pred):\n"
         "    return {\n"
@@ -169,7 +190,7 @@ nb["cells"] = [
         "best_classifier_params = search_logistic(X_train_scaled_df, y_train_rain)\n"
         "best_regressor_params, best_classifier_params\n"
     ),
-    nbf.v4.new_markdown_cell("## 6. Train Hourly Rainfall Models"),
+    nbf.v4.new_markdown_cell("## 7. Train Hourly Amount And Probability Models"),
     nbf.v4.new_code_cell(
         "amount_model = TweedieRegressor(link='log', max_iter=1000, tol=1e-5, **best_regressor_params)\n"
         "probability_model = LogisticRegression(max_iter=2000, solver='lbfgs', random_state=42, **best_classifier_params)\n\n"
@@ -178,7 +199,7 @@ nb["cells"] = [
         "amount_pred = amount_model.predict(X_test_scaled).clip(min=0)\n"
         "probability_pred = probability_model.predict_proba(X_test_scaled)[:, 1]\n"
     ),
-    nbf.v4.new_markdown_cell("## 7. Evaluate Against Climatology"),
+    nbf.v4.new_markdown_cell("## 8. Evaluate Against Month-Hour Climatology"),
     nbf.v4.new_code_cell(
         "metrics = {\n"
         "    'train_rows': int(len(train_df)),\n"
@@ -203,7 +224,7 @@ nb["cells"] = [
         ")\n\n"
         "print(json.dumps(metrics, indent=2))\n"
     ),
-    nbf.v4.new_markdown_cell("## 8. Export Serving Artifact"),
+    nbf.v4.new_markdown_cell("## 9. Export Serving Artifact"),
     nbf.v4.new_code_cell(
         "artifact = {\n"
         "    'amount_model': amount_model,\n"
@@ -221,7 +242,7 @@ nb["cells"] = [
         "print(f'Saved {MODEL_PATH.name}')\n"
         "print(f'Saved {METRICS_PATH.name}')\n"
     ),
-    nbf.v4.new_markdown_cell("## 9. Inference Helper"),
+    nbf.v4.new_markdown_cell("## 10. Inference Helper"),
     nbf.v4.new_code_cell(
         "def forecast_hourly_rainfall(timestamps, artifact_path=MODEL_PATH):\n"
         "    package = joblib.load(artifact_path)\n"
@@ -233,9 +254,9 @@ nb["cells"] = [
         "    probability_ml = package['probability_model'].predict_proba(X_scaled)[:, 1]\n"
         "    month_hour_keys = list(zip(ts.dt.month, ts.dt.hour))\n"
         "    amount_base = np.array([package['climatology']['month_hour_amount'].get(k, package['climatology']['global_amount']) for k in month_hour_keys])\n"
-        "    prob_base = np.array([package['climatology']['month_hour_probability'].get(k, package['climatology']['global_probability']) for k in month_hour_keys])\n\n"
+        "    probability_base = np.array([package['climatology']['month_hour_probability'].get(k, package['climatology']['global_probability']) for k in month_hour_keys])\n\n"
         "    amount = amount_ml if package['selected_amount_model'] == 'ml_amount_model' else amount_base\n"
-        "    probability = probability_ml if package['selected_probability_model'] == 'ml_probability_model' else prob_base\n\n"
+        "    probability = probability_ml if package['selected_probability_model'] == 'ml_probability_model' else probability_base\n\n"
         "    return pd.DataFrame({\n"
         "        'forecast_time': ts,\n"
         "        'expected_rainfall_mm': amount,\n"

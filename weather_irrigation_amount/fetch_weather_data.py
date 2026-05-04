@@ -21,9 +21,8 @@ PARAMS = {
         "et0_fao_evapotranspiration,shortwave_radiation_sum"
     ),
     "hourly": (
-        "precipitation,temperature_2m,soil_moisture_0_to_7cm,"
-        "relative_humidity_2m,vapor_pressure_deficit,wind_speed_10m,"
-        "cloud_cover,shortwave_radiation,et0_fao_evapotranspiration"
+        "precipitation_probability,rain,cloud_cover,et0_fao_evapotranspiration,"
+        "soil_temperature_0_to_7cm,soil_moisture_0_to_7cm"
     ),
     "timezone": "Africa/Nairobi",
 }
@@ -46,13 +45,28 @@ def build_hourly_dataframe(payload: dict) -> pd.DataFrame:
         raise ValueError("Hourly data not found in Open-Meteo response.")
 
     df_hourly = pd.DataFrame(payload["hourly"])
+    required_columns = {
+        "time",
+        "precipitation_probability",
+        "rain",
+        "cloud_cover",
+        "et0_fao_evapotranspiration",
+        "soil_temperature_0_to_7cm",
+        "soil_moisture_0_to_7cm",
+    }
+    missing_columns = sorted(required_columns.difference(df_hourly.columns))
+    if missing_columns:
+        raise ValueError(f"Hourly response is missing expected columns: {missing_columns}")
+
     df_hourly["time"] = pd.to_datetime(df_hourly["time"])
     df_hourly["date"] = df_hourly["time"].dt.strftime("%Y-%m-%d")
     df_hourly["hour"] = df_hourly["time"].dt.hour
     df_hourly["month"] = df_hourly["time"].dt.month
     df_hourly["day_of_year"] = df_hourly["time"].dt.dayofyear
-    df_hourly["precipitation_mm"] = df_hourly["precipitation"].clip(lower=0)
-    df_hourly["rain_occurrence"] = (df_hourly["precipitation_mm"] >= 0.1).astype(int)
+    df_hourly["probability_of_rain_percent"] = df_hourly["precipitation_probability"].clip(lower=0, upper=100)
+    df_hourly["rain_mm"] = df_hourly["rain"].clip(lower=0)
+    df_hourly["cloud_cover_total"] = df_hourly["cloud_cover"].clip(lower=0, upper=100)
+    df_hourly["rain_occurrence"] = (df_hourly["rain_mm"] >= 0.1).astype(int)
 
     ordered_columns = [
         "time",
@@ -60,16 +74,15 @@ def build_hourly_dataframe(payload: dict) -> pd.DataFrame:
         "hour",
         "month",
         "day_of_year",
-        "temperature_2m",
-        "soil_moisture_0_to_7cm",
-        "relative_humidity_2m",
-        "vapor_pressure_deficit",
-        "wind_speed_10m",
+        "precipitation_probability",
+        "probability_of_rain_percent",
+        "rain",
+        "rain_mm",
         "cloud_cover",
-        "shortwave_radiation",
+        "cloud_cover_total",
         "et0_fao_evapotranspiration",
-        "precipitation",
-        "precipitation_mm",
+        "soil_temperature_0_to_7cm",
+        "soil_moisture_0_to_7cm",
         "rain_occurrence",
     ]
     return df_hourly[ordered_columns]
@@ -91,15 +104,13 @@ def build_daily_dataframe(payload: dict, hourly_df: pd.DataFrame) -> pd.DataFram
         "temperature_2m_max",
         "temperature_2m_min",
         "shortwave_radiation_sum",
-        "temperature_2m",
-        "soil_moisture_0_to_7cm",
-        "relative_humidity_2m",
-        "vapor_pressure_deficit",
-        "wind_speed_10m",
+        "precipitation_probability",
+        "rain",
         "cloud_cover",
-        "shortwave_radiation",
         "precipitation_sum",
         "et0_fao_evapotranspiration",
+        "soil_temperature_0_to_7cm",
+        "soil_moisture_0_to_7cm",
         "precipitation",
         "evapotranspiration",
     ]

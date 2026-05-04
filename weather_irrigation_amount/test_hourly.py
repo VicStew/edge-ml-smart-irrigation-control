@@ -8,7 +8,10 @@ params = {
     "start_date": "2023-01-01",
     "end_date": "2023-01-05",
     "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,et0_fao_evapotranspiration,shortwave_radiation_sum",
-    "hourly": "soil_moisture_0_to_7cm",
+    "hourly": (
+        "precipitation_probability,rain,cloud_cover,et0_fao_evapotranspiration,"
+        "soil_temperature_0_to_7cm,soil_moisture_0_to_7cm"
+    ),
     "timezone": "Africa/Nairobi"
 }
 
@@ -24,6 +27,18 @@ if "hourly" in data:
     print("Hourly data columns:", df_hourly.columns.tolist())
     df_hourly['time'] = pd.to_datetime(df_hourly['time'])
     df_hourly['date'] = df_hourly['time'].dt.date
-    daily_soil = df_hourly.groupby('date')['soil_moisture_0_to_7cm'].mean().reset_index()
-    print("Aggregated soil moisture:")
-    print(daily_soil.head())
+    df_hourly['rain_mm'] = df_hourly['rain'].clip(lower=0)
+    df_hourly['rain_occurrence'] = (df_hourly['rain_mm'] >= 0.1).astype(int)
+    daily_summary = df_hourly.groupby('date')[
+        [
+            'precipitation_probability',
+            'rain_mm',
+            'cloud_cover',
+            'et0_fao_evapotranspiration',
+            'soil_temperature_0_to_7cm',
+            'soil_moisture_0_to_7cm',
+            'rain_occurrence',
+        ]
+    ].mean().reset_index()
+    print("Aggregated hourly rainfall-related signals:")
+    print(daily_summary.head())
