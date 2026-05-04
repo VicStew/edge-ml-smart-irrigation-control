@@ -1,45 +1,88 @@
+from __future__ import annotations
+
 from pathlib import Path
 import sys
 
 import pandas as pd
 import requests
 
+
 BASE_DIR = Path(__file__).resolve().parent
-OUTPUT_CSV = BASE_DIR / "historical_weather_data.csv"
-url = "https://archive-api.open-meteo.com/v1/archive"
-params = {
+DAILY_OUTPUT_CSV = BASE_DIR / "historical_weather_data.csv"
+HOURLY_OUTPUT_CSV = BASE_DIR / "historical_weather_data_hourly.csv"
+URL = "https://archive-api.open-meteo.com/v1/archive"
+PARAMS = {
     "latitude": -0.4167,
     "longitude": 36.9500,
     "start_date": "2022-01-01",
     "end_date": "2025-12-31",
-    "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,et0_fao_evapotranspiration,shortwave_radiation_sum",
-    "hourly": "soil_moisture_0_to_7cm,relative_humidity_2m,vapor_pressure_deficit,wind_speed_10m,cloud_cover",
-    "timezone": "Africa/Nairobi"
+    "daily": (
+        "temperature_2m_max,temperature_2m_min,precipitation_sum,"
+        "et0_fao_evapotranspiration,shortwave_radiation_sum"
+    ),
+    "hourly": (
+        "precipitation,temperature_2m,soil_moisture_0_to_7cm,"
+        "relative_humidity_2m,vapor_pressure_deficit,wind_speed_10m,"
+        "cloud_cover,shortwave_radiation,et0_fao_evapotranspiration"
+    ),
+    "timezone": "Africa/Nairobi",
 }
 
-print("Fetching historical weather data for Nyeri County...")
-response = requests.get(url, params=params)
-if response.status_code == 200:
-    data = response.json()
-    
-    if "daily" not in data or "hourly" not in data:
-        print("Required data not found in response.")
-        sys.exit(1)
-        
-    df_daily = pd.DataFrame(data['daily'])
-    df_hourly = pd.DataFrame(data['hourly'])
-    
-    # Process hourly data
-    df_hourly['time'] = pd.to_datetime(df_hourly['time'])
-    df_hourly['date'] = df_hourly['time'].dt.strftime('%Y-%m-%d')
-    # Aggregate hourly signals into daily means so they align with the daily API fields.
-    daily_aggregated = df_hourly.groupby('date').mean(numeric_only=True).reset_index()
-    daily_aggregated.rename(columns={'date': 'time'}, inplace=True)
-    
-    # Merge daily with aggregated hourly
-    df_merged = pd.merge(df_daily, daily_aggregated, on='time', how='inner')
 
-    # Keep source field names and expose clear aliases for the MLP outputs.
+def fetch_weather_payload() -> dict:
+    try:
+        response = requests.get(URL, params=PARAMS, timeout=60)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        raise RuntimeError(
+            "Failed to download weather history from Open-Meteo. "
+            "This environment currently cannot reach archive-api.open-meteo.com."
+        ) from exc
+    return response.json()
+
+
+def build_hourly_dataframe(payload: dict) -> pd.DataFrame:
+    if "hourly" not in payload:
+        raise ValueError("Hourly data not found in Open-Meteo response.")
+
+    df_hourly = pd.DataFrame(payload["hourly"])
+    df_hourly["time"] = pd.to_datetime(df_hourly["time"])
+    df_hourly["date"] = df_hourly["time"].dt.strftime("%Y-%m-%d")
+    df_hourly["hour"] = df_hourly["time"].dt.hour
+    df_hourly["month"] = df_hourly["time"].dt.month
+    df_hourly["day_of_year"] = df_hourly["time"].dt.dayofyear
+    df_hourly["precipitation_mm"] = df_hourly["precipitation"].clip(lower=0)
+    df_hourly["rain_occurrence"] = (df_hourly["precipitation_mm"] >= 0.1).astype(int)
+
+    ordered_columns = [
+        "time",
+        "date",
+        "hour",
+        "month",
+        "day_of_year",
+        "temperature_2m",
+        "soil_moisture_0_to_7cm",
+        "relative_humidity_2m",
+        "vapor_pressure_deficit",
+        "wind_speed_10m",
+        "cloud_cover",
+        "shortwave_radiation",
+        "et0_fao_evapotranspiration",
+        "precipitation",
+        "precipitation_mm",
+        "rain_occurrence",
+    ]
+    return df_hourly[ordered_columns]
+
+
+def build_daily_dataframe(payload: dict, hourly_df: pd.DataFrame) -> pd.DataFrame:
+    if "daily" not in payload:
+        raise ValueError("Daily data not found in Open-Meteo response.")
+
+    df_daily = pd.DataFrame(payload["daily"])
+    daily_aggregated = hourly_df.groupby("date").mean(numeric_only=True).reset_index()
+    daily_aggregated.rename(columns={"date": "time"}, inplace=True)
+    df_merged = pd.merge(df_daily, daily_aggregated, on="time", how="inner")
     df_merged["precipitation"] = df_merged["precipitation_sum"]
     df_merged["evapotranspiration"] = df_merged["et0_fao_evapotranspiration"]
 
@@ -48,22 +91,37 @@ if response.status_code == 200:
         "temperature_2m_max",
         "temperature_2m_min",
         "shortwave_radiation_sum",
+        "temperature_2m",
         "soil_moisture_0_to_7cm",
         "relative_humidity_2m",
         "vapor_pressure_deficit",
         "wind_speed_10m",
         "cloud_cover",
+        "shortwave_radiation",
         "precipitation_sum",
         "et0_fao_evapotranspiration",
         "precipitation",
         "evapotranspiration",
     ]
-    df_merged = df_merged[ordered_columns]
+    return df_merged[ordered_columns]
 
-    df_merged.to_csv(OUTPUT_CSV, index=False)
-    print(f"Data fetched and saved to {OUTPUT_CSV.name} successfully!")
-    print(f"Total rows: {len(df_merged)}")
-else:
-    print(f"Failed to fetch: {response.status_code}")
-    print(response.text)
-    sys.exit(1)
+
+def main() -> None:
+    print("Fetching hourly and daily weather history for Nyeri County...")
+    try:
+        payload = fetch_weather_payload()
+        hourly_df = build_hourly_dataframe(payload)
+        daily_df = build_daily_dataframe(payload, hourly_df)
+    except Exception as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    hourly_df.to_csv(HOURLY_OUTPUT_CSV, index=False)
+    daily_df.to_csv(DAILY_OUTPUT_CSV, index=False)
+
+    print(f"Saved hourly history to {HOURLY_OUTPUT_CSV.name} ({len(hourly_df)} rows)")
+    print(f"Saved daily aggregate to {DAILY_OUTPUT_CSV.name} ({len(daily_df)} rows)")
+
+
+if __name__ == "__main__":
+    main()
