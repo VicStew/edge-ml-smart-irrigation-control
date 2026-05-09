@@ -21,7 +21,7 @@ PARAMS = {
     "start_date": "2020-01-01",
     "end_date": "2025-12-31",
     "hourly": (
-        "precipitation_probability,rain,cloud_cover,"
+        "precipitation_probability,precipitation,rain,cloud_cover,"
         "evapotranspiration,soil_temperature_6cm,soil_moisture_0_to_1cm"
     ),
     "timezone": LOCAL_TIMEZONE_NAME,
@@ -29,6 +29,8 @@ PARAMS = {
 
 INPUT_RENAME_MAP = {
     "precipitation_probability (%)": "precipitation_probability",
+    "precipitation": "precipitation_mm",
+    "precipitation (mm)": "precipitation_mm",
     "rain": "rain_mm",
     "rain (mm)": "rain_mm",
     "cloud_cover (%)": "cloud_cover",
@@ -74,6 +76,7 @@ def normalize_hourly_dataframe(data_df: pd.DataFrame, timezone_name: str) -> pd.
     required_columns = {
         "time",
         "precipitation_probability",
+        "precipitation_mm",
         "rain_mm",
         "cloud_cover",
         "evapotranspiration_mm",
@@ -100,6 +103,7 @@ def normalize_hourly_dataframe(data_df: pd.DataFrame, timezone_name: str) -> pd.
     df["month_eat"] = timestamps_local.dt.month
     df["day_of_year_eat"] = timestamps_local.dt.dayofyear
     df["probability_of_rain_percent"] = df["precipitation_probability"].clip(lower=0, upper=100)
+    df["precipitation_mm"] = df["precipitation_mm"].clip(lower=0)
     df["rain_mm"] = df["rain_mm"].clip(lower=0)
     df["cloud_cover_total_percent"] = df["cloud_cover"].clip(lower=0, upper=100)
     df["rain_occurrence"] = (df["rain_mm"] >= 0.1).astype(int)
@@ -113,6 +117,7 @@ def normalize_hourly_dataframe(data_df: pd.DataFrame, timezone_name: str) -> pd.
         "day_of_year_eat",
         "precipitation_probability",
         "probability_of_rain_percent",
+        "precipitation_mm",
         "rain_mm",
         "cloud_cover",
         "cloud_cover_total_percent",

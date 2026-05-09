@@ -23,30 +23,30 @@
     "dom_sin_1",
     "dom_cos_1"
   ],
-  "amount_models": {
+  "precipitation_models": {
     "mlp": {
       "mae_mm": 0.20112009346485138,
       "rmse_mm": 0.572400689125061,
       "r2": -0.08262205123901367,
-      "rainy_hours_count": 3184,
-      "rainy_mae_mm": 0.39333197474479675,
-      "rainy_rmse_mm": 0.9869745373725891
+      "wet_hours_count": 3184,
+      "wet_mae_mm": 0.39333197474479675,
+      "wet_rmse_mm": 0.9869745373725891
     },
     "climatology_month_hour": {
       "mae_mm": 0.20468920469284058,
       "rmse_mm": 0.5451643466949463,
       "r2": 0.01795482635498047,
-      "rainy_hours_count": 3184,
-      "rainy_mae_mm": 0.37300872802734375,
-      "rainy_rmse_mm": 0.9525684118270874
+      "wet_hours_count": 3184,
+      "wet_mae_mm": 0.37300872802734375,
+      "wet_rmse_mm": 0.9525684118270874
     },
     "persistence_last_hour": {
       "mae_mm": 0.14905911684036255,
       "rmse_mm": 0.62298983335495,
       "r2": -0.2824443578720093,
-      "rainy_hours_count": 3184,
-      "rainy_mae_mm": 0.4227387011051178,
-      "rainy_rmse_mm": 1.0875177383422852
+      "wet_hours_count": 3184,
+      "wet_mae_mm": 0.4227387011051178,
+      "wet_rmse_mm": 1.0875177383422852
     }
   },
   "probability_models": {
@@ -96,6 +96,6 @@
       "fn": 866
     }
   },
-  "selected_amount_model": "climatology_month_hour",
+  "selected_precipitation_model": "climatology_month_hour",
   "selected_probability_model": "persistence_last_hour"
 }
