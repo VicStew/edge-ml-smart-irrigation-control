@@ -12,28 +12,31 @@ import requests
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_CSV = BASE_DIR / "historical_weather_data_hourly.csv"
-EAT = ZoneInfo("Africa/Nairobi")
-UTC = ZoneInfo("UTC")
+LOCAL_TIMEZONE_NAME = "Africa/Nairobi"
+LOCAL_TIMEZONE = ZoneInfo(LOCAL_TIMEZONE_NAME)
 URL = "https://archive-api.open-meteo.com/v1/archive"
-DEFAULT_EXPORT_PATH = Path("/home/vector/Downloads/open-meteo-0.39S36.94E1815m.csv")
 PARAMS = {
     "latitude": -0.4167,
     "longitude": 36.9500,
-    "start_date": "2022-01-01",
+    "start_date": "2020-01-01",
     "end_date": "2025-12-31",
     "hourly": (
         "precipitation_probability,rain,cloud_cover,"
         "evapotranspiration,soil_temperature_6cm,soil_moisture_0_to_1cm"
     ),
-    "timezone": "GMT",
+    "timezone": LOCAL_TIMEZONE_NAME,
 }
 
-EXPORT_RENAME_MAP = {
+INPUT_RENAME_MAP = {
     "precipitation_probability (%)": "precipitation_probability",
+    "rain": "rain_mm",
     "rain (mm)": "rain_mm",
     "cloud_cover (%)": "cloud_cover",
+    "evapotranspiration": "evapotranspiration_mm",
     "evapotranspiration (mm)": "evapotranspiration_mm",
+    "soil_temperature_6cm": "soil_temperature_c",
     "soil_temperature_6cm (°C)": "soil_temperature_c",
+    "soil_moisture_0_to_1cm": "soil_moisture_m3m3",
     "soil_moisture_0_to_1cm (m³/m³)": "soil_moisture_m3m3",
 }
 
@@ -47,8 +50,7 @@ def parse_export_csv(export_path: Path) -> pd.DataFrame:
     metadata_df = pd.read_csv(StringIO(parts[0]))
     data_df = pd.read_csv(StringIO(parts[1]))
     timezone_name = str(metadata_df.loc[0, "timezone"]).strip()
-    source_tz = ZoneInfo("UTC") if timezone_name in {"GMT", "UTC"} else ZoneInfo(timezone_name)
-    return normalize_hourly_dataframe(data_df, source_tz=source_tz)
+    return normalize_hourly_dataframe(data_df, timezone_name=timezone_name)
 
 
 def fetch_api_dataframe() -> pd.DataFrame:
@@ -65,11 +67,10 @@ def fetch_api_dataframe() -> pd.DataFrame:
     if "hourly" not in payload:
         raise ValueError("Hourly data not found in Open-Meteo API response.")
     data_df = pd.DataFrame(payload["hourly"])
-    return normalize_hourly_dataframe(data_df, source_tz=UTC)
+    return normalize_hourly_dataframe(data_df, timezone_name=LOCAL_TIMEZONE_NAME)
 
-
-def normalize_hourly_dataframe(data_df: pd.DataFrame, source_tz: ZoneInfo) -> pd.DataFrame:
-    df = data_df.rename(columns=EXPORT_RENAME_MAP).copy()
+def normalize_hourly_dataframe(data_df: pd.DataFrame, timezone_name: str) -> pd.DataFrame:
+    df = data_df.rename(columns=INPUT_RENAME_MAP).copy()
     required_columns = {
         "time",
         "precipitation_probability",
@@ -84,18 +85,20 @@ def normalize_hourly_dataframe(data_df: pd.DataFrame, source_tz: ZoneInfo) -> pd
         raise ValueError(f"Hourly weather data is missing expected columns: {missing_columns}")
 
     timestamps = pd.to_datetime(df["time"])
+    source_tz = ZoneInfo("UTC") if timezone_name in {"GMT", "UTC"} else ZoneInfo(timezone_name)
     if timestamps.dt.tz is None:
         timestamps = timestamps.dt.tz_localize(source_tz)
     else:
         timestamps = timestamps.dt.tz_convert(source_tz)
-    timestamps_eat = timestamps.dt.tz_convert(EAT)
+
+    timestamps_local = timestamps.dt.tz_convert(LOCAL_TIMEZONE)
 
     df["time_utc"] = timestamps.dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    df["time"] = timestamps_eat.dt.strftime("%Y-%m-%dT%H:%M:%S")
-    df["date_eat"] = timestamps_eat.dt.strftime("%Y-%m-%d")
-    df["hour_eat"] = timestamps_eat.dt.hour
-    df["month_eat"] = timestamps_eat.dt.month
-    df["day_of_year_eat"] = timestamps_eat.dt.dayofyear
+    df["time"] = timestamps_local.dt.strftime("%Y-%m-%dT%H:%M:%S")
+    df["date_eat"] = timestamps_local.dt.strftime("%Y-%m-%d")
+    df["hour_eat"] = timestamps_local.dt.hour
+    df["month_eat"] = timestamps_local.dt.month
+    df["day_of_year_eat"] = timestamps_local.dt.dayofyear
     df["probability_of_rain_percent"] = df["precipitation_probability"].clip(lower=0, upper=100)
     df["rain_mm"] = df["rain_mm"].clip(lower=0)
     df["cloud_cover_total_percent"] = df["cloud_cover"].clip(lower=0, upper=100)
@@ -133,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=OUTPUT_CSV,
-        help="Destination CSV for normalized EAT hourly history.",
+        help="Destination CSV for local-time hourly history.",
     )
     return parser
 
@@ -145,8 +148,6 @@ def main() -> None:
     try:
         if args.source_export:
             df = parse_export_csv(args.source_export)
-        elif DEFAULT_EXPORT_PATH.exists():
-            df = parse_export_csv(DEFAULT_EXPORT_PATH)
         else:
             df = fetch_api_dataframe()
     except Exception as exc:
@@ -156,7 +157,7 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(args.output, index=False)
     print(f"Saved {len(df)} hourly rows to {args.output}")
-    print("Timestamps were normalized to EAT (Africa/Nairobi).")
+    print(f"Timestamps were normalized to local time ({LOCAL_TIMEZONE_NAME}).")
 
 
 if __name__ == "__main__":

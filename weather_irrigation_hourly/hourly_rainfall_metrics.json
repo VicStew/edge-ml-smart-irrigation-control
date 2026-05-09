@@ -1,24 +1,101 @@
 {
-  "train_rows": 1344,
-  "test_rows": 336,
-  "tensorflow_amount": {
-    "mae_mm": 0.11192438751459122,
-    "rmse_mm": 0.30708739161491394,
-    "r2": -0.13007640838623047
+  "train_rows": 42086,
+  "test_rows": 10522,
+  "feature_columns": [
+    "year_index",
+    "is_weekend",
+    "month_hour_amount_climatology",
+    "month_hour_probability_climatology",
+    "doy_hour_amount_climatology",
+    "doy_hour_probability_climatology",
+    "month_sin_1",
+    "month_cos_1",
+    "hour_sin_1",
+    "hour_cos_1",
+    "hour_sin_2",
+    "hour_cos_2",
+    "doy_sin_1",
+    "doy_cos_1",
+    "doy_sin_2",
+    "doy_cos_2",
+    "dow_sin_1",
+    "dow_cos_1",
+    "dom_sin_1",
+    "dom_cos_1"
+  ],
+  "amount_models": {
+    "mlp": {
+      "mae_mm": 0.20112009346485138,
+      "rmse_mm": 0.572400689125061,
+      "r2": -0.08262205123901367,
+      "rainy_hours_count": 3184,
+      "rainy_mae_mm": 0.39333197474479675,
+      "rainy_rmse_mm": 0.9869745373725891
+    },
+    "climatology_month_hour": {
+      "mae_mm": 0.20468920469284058,
+      "rmse_mm": 0.5451643466949463,
+      "r2": 0.01795482635498047,
+      "rainy_hours_count": 3184,
+      "rainy_mae_mm": 0.37300872802734375,
+      "rainy_rmse_mm": 0.9525684118270874
+    },
+    "persistence_last_hour": {
+      "mae_mm": 0.14905911684036255,
+      "rmse_mm": 0.62298983335495,
+      "r2": -0.2824443578720093,
+      "rainy_hours_count": 3184,
+      "rainy_mae_mm": 0.4227387011051178,
+      "rainy_rmse_mm": 1.0875177383422852
+    }
   },
-  "baseline_amount": {
-    "mae_mm": 0.11213693022727966,
-    "rmse_mm": 0.29403191804885864,
-    "r2": -0.036031246185302734
+  "probability_models": {
+    "mlp": {
+      "brier_score": 0.22858783602714539,
+      "accuracy": 0.6326743965025661,
+      "precision": 0.4138192862566439,
+      "recall": 0.5135050251256281,
+      "f1": 0.4583041345480028,
+      "roc_auc": 0.6528309431800595,
+      "pr_auc": 0.4297165588588123,
+      "positive_hours": 3184,
+      "negative_hours": 7338,
+      "tp": 1635,
+      "tn": 5022,
+      "fp": 2316,
+      "fn": 1549
+    },
+    "climatology_month_hour": {
+      "brier_score": 0.1880495250225067,
+      "accuracy": 0.712126972058544,
+      "precision": 0.5410269984118581,
+      "recall": 0.32097989949748745,
+      "f1": 0.40291740587423613,
+      "roc_auc": 0.7156315099619108,
+      "pr_auc": 0.5070227471718929,
+      "positive_hours": 3184,
+      "negative_hours": 7338,
+      "tp": 1022,
+      "tn": 6471,
+      "fp": 867,
+      "fn": 2162
+    },
+    "persistence_last_hour": {
+      "brier_score": 0.16460749506950378,
+      "accuracy": 0.8353925109294811,
+      "precision": 0.7280150753768844,
+      "recall": 0.7280150753768844,
+      "f1": 0.7280150753768844,
+      "roc_auc": 0.8049996336273901,
+      "pr_auc": 0.61230969451127,
+      "positive_hours": 3184,
+      "negative_hours": 7338,
+      "tp": 2318,
+      "tn": 6472,
+      "fp": 866,
+      "fn": 866
+    }
   },
-  "tensorflow_probability": {
-    "brier_score": 0.48489290475845337,
-    "accuracy": 0.48214285714285715
-  },
-  "baseline_probability": {
-    "brier_score": 0.29317763447761536,
-    "accuracy": 0.48214285714285715
-  },
-  "selected_amount_model": "month_hour_climatology",
-  "selected_probability_model": "month_hour_climatology"
+  "selected_amount_model": "climatology_month_hour",
+  "selected_probability_model": "persistence_last_hour"
 }
