@@ -384,7 +384,6 @@ nb["cells"] = [
         "        h_file.write(f'#endif  // {guard}\\n')\n\n"
         "model.save(KERAS_MODEL_PATH)\n"
         "converter = tf.lite.TFLiteConverter.from_keras_model(model)\n"
-        "converter.optimizations = [tf.lite.Optimize.DEFAULT]\n"
         "tflite_model = converter.convert()\n"
         "TFLITE_MODEL_PATH.write_bytes(tflite_model)\n"
         "convert_tflite_to_c_array(TFLITE_MODEL_PATH, CC_MODEL_PATH, H_MODEL_PATH, C_ARRAY_NAME)\n"
