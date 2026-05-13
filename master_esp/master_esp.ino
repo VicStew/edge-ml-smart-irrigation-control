@@ -16,6 +16,7 @@
 
 #define WIFI_CHANNEL 4
 #define CONTROL_INTERVAL_MS 30000           // 30 seconds
+#define RAINFALL_FORECAST_HORIZON_SEC 3600
 #define RAIN_PROBABILITY_BLOCK_THRESHOLD 0.50f
 #define RAIN_AMOUNT_BLOCK_THRESHOLD_MM 1.00f
 #define MIN_IRRIGATION_DURATION_SEC 60
@@ -251,6 +252,37 @@ float cyclical_cos(
   );
 }
 
+uint16_t month_hour_index(
+  int month,
+  int hour
+) {
+  return (month - 1) * 24 + hour;
+}
+
+uint16_t lag_month_hour_index(
+  const struct tm &time_info,
+  int lag_hours
+) {
+  struct tm lag_time_info =
+    time_info;
+
+  lag_time_info.tm_isdst = -1;
+
+  time_t lag_epoch =
+    mktime(&lag_time_info) -
+    lag_hours * 3600;
+
+  localtime_r(
+    &lag_epoch,
+    &lag_time_info
+  );
+
+  return month_hour_index(
+    lag_time_info.tm_mon + 1,
+    lag_time_info.tm_hour
+  );
+}
+
 void init_time() {
   char month_name[4] = {};
   int day = 0;
@@ -421,8 +453,11 @@ void build_rainfall_features(
   int dom =
     time_info.tm_mday;
 
-  uint16_t month_hour_index =
-    (month - 1) * 24 + hour;
+  uint16_t current_month_hour_index =
+    month_hour_index(
+      month,
+      hour
+    );
 
   uint16_t doy_hour_index =
     (doy - 1) * 24 + hour;
@@ -446,12 +481,12 @@ void build_rainfall_features(
 
   features[2] =
     HOURLY_RAINFALL_MONTH_HOUR_AMOUNT[
-      month_hour_index
+      current_month_hour_index
     ];
 
   features[3] =
     HOURLY_RAINFALL_MONTH_HOUR_PROBABILITY[
-      month_hour_index
+      current_month_hour_index
     ];
 
   features[4] =
@@ -464,33 +499,97 @@ void build_rainfall_features(
       doy_hour_index
     ];
 
+  uint16_t lag_1h_index =
+    lag_month_hour_index(
+      time_info,
+      1
+    );
+
+  uint16_t lag_3h_index =
+    lag_month_hour_index(
+      time_info,
+      3
+    );
+
+  uint16_t lag_6h_index =
+    lag_month_hour_index(
+      time_info,
+      6
+    );
+
+  uint16_t lag_24h_index =
+    lag_month_hour_index(
+      time_info,
+      24
+    );
+
   features[6] =
-    cyclical_sin(month, 12.0f, 1);
+    HOURLY_RAINFALL_LAG_1H_MONTH_AMOUNT[
+      lag_1h_index
+    ];
+
   features[7] =
-    cyclical_cos(month, 12.0f, 1);
+    HOURLY_RAINFALL_LAG_1H_MONTH_PROBABILITY[
+      lag_1h_index
+    ];
+
   features[8] =
-    cyclical_sin(hour_fraction, 24.0f, 1);
+    HOURLY_RAINFALL_LAG_3H_MONTH_AMOUNT[
+      lag_3h_index
+    ];
+
   features[9] =
-    cyclical_cos(hour_fraction, 24.0f, 1);
+    HOURLY_RAINFALL_LAG_3H_MONTH_PROBABILITY[
+      lag_3h_index
+    ];
+
   features[10] =
-    cyclical_sin(hour_fraction, 24.0f, 2);
+    HOURLY_RAINFALL_LAG_6H_MONTH_AMOUNT[
+      lag_6h_index
+    ];
+
   features[11] =
-    cyclical_cos(hour_fraction, 24.0f, 2);
+    HOURLY_RAINFALL_LAG_6H_MONTH_PROBABILITY[
+      lag_6h_index
+    ];
+
   features[12] =
-    cyclical_sin(doy, 365.25f, 1);
+    HOURLY_RAINFALL_LAG_24H_MONTH_AMOUNT[
+      lag_24h_index
+    ];
+
   features[13] =
-    cyclical_cos(doy, 365.25f, 1);
+    HOURLY_RAINFALL_LAG_24H_MONTH_PROBABILITY[
+      lag_24h_index
+    ];
+
   features[14] =
-    cyclical_sin(doy, 365.25f, 2);
+    cyclical_sin(month, 12.0f, 1);
   features[15] =
-    cyclical_cos(doy, 365.25f, 2);
+    cyclical_cos(month, 12.0f, 1);
   features[16] =
-    cyclical_sin(dow, 7.0f, 1);
+    cyclical_sin(hour_fraction, 24.0f, 1);
   features[17] =
-    cyclical_cos(dow, 7.0f, 1);
+    cyclical_cos(hour_fraction, 24.0f, 1);
   features[18] =
-    cyclical_sin(dom, 31.0f, 1);
+    cyclical_sin(hour_fraction, 24.0f, 2);
   features[19] =
+    cyclical_cos(hour_fraction, 24.0f, 2);
+  features[20] =
+    cyclical_sin(doy, 365.25f, 1);
+  features[21] =
+    cyclical_cos(doy, 365.25f, 1);
+  features[22] =
+    cyclical_sin(doy, 365.25f, 2);
+  features[23] =
+    cyclical_cos(doy, 365.25f, 2);
+  features[24] =
+    cyclical_sin(dow, 7.0f, 1);
+  features[25] =
+    cyclical_cos(dow, 7.0f, 1);
+  features[26] =
+    cyclical_sin(dom, 31.0f, 1);
+  features[27] =
     cyclical_cos(dom, 31.0f, 1);
 }
 
@@ -505,6 +604,26 @@ bool update_rainfall_forecast() {
     latest_rainfall_forecast.valid = false;
     return false;
   }
+
+  time_info.tm_isdst = -1;
+  time_t forecast_epoch =
+    mktime(&time_info) +
+    RAINFALL_FORECAST_HORIZON_SEC;
+
+  localtime_r(
+    &forecast_epoch,
+    &time_info
+  );
+
+  Serial.printf(
+    "Forecasting rainfall one hour ahead for %04d-%02d-%02d %02d:%02d:%02d\n",
+    time_info.tm_year + 1900,
+    time_info.tm_mon + 1,
+    time_info.tm_mday,
+    time_info.tm_hour,
+    time_info.tm_min,
+    time_info.tm_sec
+  );
 
   float features[
     HOURLY_RAINFALL_FEATURE_COUNT
