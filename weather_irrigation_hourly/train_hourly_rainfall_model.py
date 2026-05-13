@@ -273,7 +273,12 @@ def probability_metrics(y_true: np.ndarray, y_prob: np.ndarray) -> dict:
 
 
 def format_float(value: float) -> str:
-    return f"{np.float32(value):.9g}f"
+    literal = f"{np.float32(value):.9g}"
+
+    if "." not in literal and "e" not in literal.lower():
+        literal += ".0"
+
+    return f"{literal}f"
 
 
 def write_float_array(
