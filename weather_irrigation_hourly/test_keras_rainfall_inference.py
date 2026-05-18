@@ -282,7 +282,9 @@ def main() -> None:
 
     timestamps = args.timestamps
     if not timestamps:
-        timestamps = test_df["time"].tail(3).astype(str).tolist()
+        timestamps = ['2026-05-13 18:34:00', '2025-05-13 18:30:00', '2025-05-13 19:00:00']
+
+    print(timestamps)
 
     ts = pd.to_datetime(pd.Series(timestamps))
     if args.next_hour:

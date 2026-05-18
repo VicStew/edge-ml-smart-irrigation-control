@@ -13,33 +13,21 @@ import requests
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_CSV = BASE_DIR / "historical_weather_data_hourly.csv"
 LOCAL_TIMEZONE_NAME = "Africa/Nairobi"
-LOCAL_TIMEZONE = ZoneInfo(LOCAL_TIMEZONE_NAME)
 URL = "https://archive-api.open-meteo.com/v1/archive"
 PARAMS = {
-    "latitude": -0.4167,
-    "longitude": 36.9500,
-    "start_date": "2020-01-01",
-    "end_date": "2025-12-31",
-    "hourly": (
-        "precipitation_probability,precipitation,rain,cloud_cover,"
-        "evapotranspiration,soil_temperature_6cm,soil_moisture_0_to_1cm"
-    ),
-    "timezone": LOCAL_TIMEZONE_NAME,
+	"latitude": -0.4201,
+	"longitude": 36.9476,
+	"start_date": "2015-01-01",
+	"end_date": "2025-12-31",
+	"hourly": ["temperature_2m", "relative_humidity_2m", "soil_temperature_0_to_7cm", "precipitation", "et0_fao_evapotranspiration", "shortwave_radiation"],
+	"timezone": "Africa/Nairobi",
 }
 
 INPUT_RENAME_MAP = {
-    "precipitation_probability (%)": "precipitation_probability",
     "precipitation": "precipitation_mm",
     "precipitation (mm)": "precipitation_mm",
-    "rain": "rain_mm",
-    "rain (mm)": "rain_mm",
-    "cloud_cover (%)": "cloud_cover",
-    "evapotranspiration": "evapotranspiration_mm",
-    "evapotranspiration (mm)": "evapotranspiration_mm",
-    "soil_temperature_6cm": "soil_temperature_c",
-    "soil_temperature_6cm (°C)": "soil_temperature_c",
-    "soil_moisture_0_to_1cm": "soil_moisture_m3m3",
-    "soil_moisture_0_to_1cm (m³/m³)": "soil_moisture_m3m3",
+    "et0_fao_evapotranspiration": "et0_fao_evapotranspiration_mm",
+    "et0_fao_evapotranspiration (mm)": "et0_fao_evapotranspiration_mm",
 }
 
 
@@ -75,56 +63,31 @@ def normalize_hourly_dataframe(data_df: pd.DataFrame, timezone_name: str) -> pd.
     df = data_df.rename(columns=INPUT_RENAME_MAP).copy()
     required_columns = {
         "time",
-        "precipitation_probability",
+        "temperature_2m",
+        "relative_humidity_2m",
+        "soil_temperature_0_to_7cm",
+        "shortwave_radiation",
+        "et0_fao_evapotranspiration_mm",
         "precipitation_mm",
-        "rain_mm",
-        "cloud_cover",
-        "evapotranspiration_mm",
-        "soil_temperature_c",
-        "soil_moisture_m3m3",
     }
     missing_columns = sorted(required_columns.difference(df.columns))
     if missing_columns:
         raise ValueError(f"Hourly weather data is missing expected columns: {missing_columns}")
 
     timestamps = pd.to_datetime(df["time"])
-    source_tz = ZoneInfo("UTC") if timezone_name in {"GMT", "UTC"} else ZoneInfo(timezone_name)
-    if timestamps.dt.tz is None:
-        timestamps = timestamps.dt.tz_localize(source_tz)
-    else:
-        timestamps = timestamps.dt.tz_convert(source_tz)
-
-    timestamps_local = timestamps.dt.tz_convert(LOCAL_TIMEZONE)
-
-    df["time_utc"] = timestamps.dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-    df["time"] = timestamps_local.dt.strftime("%Y-%m-%dT%H:%M:%S")
-    df["date_eat"] = timestamps_local.dt.strftime("%Y-%m-%d")
-    df["hour_eat"] = timestamps_local.dt.hour
-    df["month_eat"] = timestamps_local.dt.month
-    df["day_of_year_eat"] = timestamps_local.dt.dayofyear
-    df["probability_of_rain_percent"] = df["precipitation_probability"].clip(lower=0, upper=100)
+    
+    # Open-Meteo returns time in local time when timezone is set
+    df["time"] = timestamps.dt.strftime("%Y-%m-%dT%H:%M:%S")
     df["precipitation_mm"] = df["precipitation_mm"].clip(lower=0)
-    df["rain_mm"] = df["rain_mm"].clip(lower=0)
-    df["cloud_cover_total_percent"] = df["cloud_cover"].clip(lower=0, upper=100)
-    df["rain_occurrence"] = (df["rain_mm"] >= 0.1).astype(int)
 
     ordered_columns = [
         "time",
-        "time_utc",
-        "date_eat",
-        "hour_eat",
-        "month_eat",
-        "day_of_year_eat",
-        "precipitation_probability",
-        "probability_of_rain_percent",
+        "temperature_2m",
+        "relative_humidity_2m",
+        "soil_temperature_0_to_7cm",
+        "shortwave_radiation",
+        "et0_fao_evapotranspiration_mm",
         "precipitation_mm",
-        "rain_mm",
-        "cloud_cover",
-        "cloud_cover_total_percent",
-        "evapotranspiration_mm",
-        "soil_temperature_c",
-        "soil_moisture_m3m3",
-        "rain_occurrence",
     ]
     return df[ordered_columns]
 

@@ -1,66 +1,22 @@
 {
   "train_rows": 42086,
   "test_rows": 10522,
-  "lag_feature_strategy": "monthly",
-  "lag_hours": [
-    1,
-    3,
-    6,
-    24
-  ],
   "feature_columns": [
-    "year_index",
-    "is_weekend",
-    "month_hour_amount_climatology",
-    "month_hour_probability_climatology",
-    "doy_hour_amount_climatology",
-    "doy_hour_probability_climatology",
-    "lag_1h_amount_monthly",
-    "lag_1h_probability_monthly",
-    "lag_3h_amount_monthly",
-    "lag_3h_probability_monthly",
-    "lag_6h_amount_monthly",
-    "lag_6h_probability_monthly",
-    "lag_24h_amount_monthly",
-    "lag_24h_probability_monthly",
-    "month_sin_1",
-    "month_cos_1",
-    "hour_sin_1",
-    "hour_cos_1",
-    "hour_sin_2",
-    "hour_cos_2",
-    "doy_sin_1",
-    "doy_cos_1",
-    "doy_sin_2",
-    "doy_cos_2",
-    "dow_sin_1",
-    "dow_cos_1",
-    "dom_sin_1",
-    "dom_cos_1"
+    "temperature_2m",
+    "relative_humidity_2m",
+    "soil_temperature_0_to_7cm",
+    "shortwave_radiation",
+    "et0_fao_evapotranspiration_mm"
   ],
   "amount_models": {
-    "mlp_monthly_lags": {
-      "mae_mm": 0.1549023538827896,
-      "rmse_mm": 0.5553760821469085,
-      "r2": -0.01918017864227295,
+    "mlp_sensors": {
+      "mae_mm": 0.13892054557800293,
+      "rmse_mm": 0.4766670800198361,
+      "r2": 0.24922996759414673,
       "rainy_hours_count": 3184,
-      "rainy_mae_mm": 0.39240890741348267,
-      "rainy_rmse_mm": 0.9963896966246818
+      "rainy_mae_mm": 0.3205680549144745,
+      "rainy_rmse_mm": 0.8536889709844273
     }
   },
-  "probability_models": {
-    "mlp_monthly_lags": {
-      "brier_score": 0.20027606189250946,
-      "accuracy": 0.6967306595704239,
-      "precision": 0.49801249290176036,
-      "recall": 0.2754396984924623,
-      "f1": 0.35470171890798785,
-      "roc_auc": 0.6836814001528493,
-      "pr_auc": 0.4526112465323375,
-      "positive_hours": 3184,
-      "negative_hours": 7338
-    }
-  },
-  "selected_amount_model": "mlp_monthly_lags",
-  "selected_probability_model": "mlp_monthly_lags"
+  "selected_amount_model": "mlp_sensors"
 }
