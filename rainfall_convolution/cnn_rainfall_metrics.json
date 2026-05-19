@@ -1,0 +1,67 @@
+{
+  "train_rows": 42063,
+  "test_rows": 10499,
+  "time_steps": 24,
+  "lag_feature_strategy": "monthly",
+  "lag_hours": [
+    1,
+    3,
+    6,
+    24
+  ],
+  "feature_columns": [
+    "year_index",
+    "is_weekend",
+    "month_hour_amount_climatology",
+    "month_hour_probability_climatology",
+    "doy_hour_amount_climatology",
+    "doy_hour_probability_climatology",
+    "lag_1h_amount_monthly",
+    "lag_1h_probability_monthly",
+    "lag_3h_amount_monthly",
+    "lag_3h_probability_monthly",
+    "lag_6h_amount_monthly",
+    "lag_6h_probability_monthly",
+    "lag_24h_amount_monthly",
+    "lag_24h_probability_monthly",
+    "month_sin_1",
+    "month_cos_1",
+    "hour_sin_1",
+    "hour_cos_1",
+    "hour_sin_2",
+    "hour_cos_2",
+    "doy_sin_1",
+    "doy_cos_1",
+    "doy_sin_2",
+    "doy_cos_2",
+    "dow_sin_1",
+    "dow_cos_1",
+    "dom_sin_1",
+    "dom_cos_1"
+  ],
+  "amount_models": {
+    "cnn_1d_sequence": {
+      "mae_mm": 0.19980297982692719,
+      "rmse_mm": 0.5466290874716564,
+      "r2": 0.014279186725616455,
+      "rainy_hours_count": 3176,
+      "rainy_mae_mm": 0.36201000213623047,
+      "rainy_rmse_mm": 0.9643660687214115
+    }
+  },
+  "probability_models": {
+    "cnn_1d_sequence": {
+      "brier_score": 0.20024161040782928,
+      "accuracy": 0.6876845413848938,
+      "precision": 0.4763000460193281,
+      "recall": 0.3258816120906801,
+      "f1": 0.3869882220975883,
+      "roc_auc": 0.6739310532943548,
+      "pr_auc": 0.4617981684716168,
+      "positive_hours": 3176,
+      "negative_hours": 7323
+    }
+  },
+  "selected_amount_model": "cnn_1d_sequence",
+  "selected_probability_model": "cnn_1d_sequence"
+}
