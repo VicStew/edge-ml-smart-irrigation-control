@@ -9,18 +9,19 @@
 #define WIFI_CHANNEL 4
 #define SECTION_ID 1
 
-#define VALVE_PIN 4
-#define SPRAY_PIN 5
-#define FERTILIZER_PIN 6
+#define VALVE_PIN 25
+#define SPRAY_PIN 26
+#define FERTILIZER_PIN 27
 
 #define STATUS_INTERVAL_MS 10000
+#define MAX_SENSOR_PEERS 16
 
 /* ============================
-   ORCHESTRATOR MAC
+   MASTER MAC
 ============================ */
 
-uint8_t orchestrator_mac[6] = {
-  0x24, 0x6F, 0x28, 0xAA, 0xBB, 0xCC
+uint8_t master_mac[6] = {
+  0x98, 0xA3, 0x16, 0xC9, 0x3F, 0x2C
 };
 
 /* ============================
@@ -28,30 +29,28 @@ uint8_t orchestrator_mac[6] = {
 ============================ */
 
 typedef enum {
-  MSG_SENSOR_DATA = 1,
+  MSG_WEATHER_DATA = 1,
   MSG_CONTROL_CMD = 2,
   MSG_STATUS = 3,
   MSG_ACK = 4
 } msg_type_t;
 
 /* ============================
-   SENSOR PAYLOAD
+   WEATHER PAYLOAD
 ============================ */
 
 typedef struct {
-  float moisture;
-  float temperature;
-  float humidity;
-  float pH;
-  float nitrogen;
-  float phosphorus;
-  float potassium;
-  float light;
-} sensor_payload_t;
+  uint32_t sample_time;
+  float temperature_2m;
+  float relative_humidity_2m;
+  float soil_temperature_0_to_7cm;
+  float et0_fao_evapotranspiration;
+  float shortwave_radiation;
+} weather_payload_t;
 
 /* =========================
    CONTROL PAYLOAD
-   ========================= */
+========================= */
 
 typedef struct {
   bool irrigate;
@@ -85,7 +84,7 @@ typedef struct {
   msg_type_t type;
 
   union {
-    sensor_payload_t sensor;
+    weather_payload_t weather;
     control_payload_t control;
     status_payload_t status;
   };
@@ -103,6 +102,9 @@ bool fertilizer_state = false;
 unsigned long last_status_time = 0;
 uint32_t packet_counter = 0;
 
+uint8_t sensor_peers[MAX_SENSOR_PEERS][6];
+uint8_t sensor_peer_count = 0;
+
 /* ============================
    HELPERS
 ============================ */
@@ -115,15 +117,61 @@ void print_mac(const uint8_t *mac) {
   );
 }
 
+bool mac_equal(
+  const uint8_t *left,
+  const uint8_t *right
+) {
+  return memcmp(left, right, 6) == 0;
+}
+
+void add_peer_if_needed(
+  const uint8_t *mac
+) {
+  if (esp_now_is_peer_exist(mac)) {
+    return;
+  }
+
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, mac, 6);
+  peerInfo.channel = WIFI_CHANNEL;
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) == ESP_OK) {
+    Serial.print("Peer added: ");
+    print_mac(mac);
+  } else {
+    Serial.println("Failed to add peer");
+  }
+}
+
+void remember_sensor_peer(
+  const uint8_t *mac
+) {
+  for (uint8_t i = 0; i < sensor_peer_count; i++) {
+    if (mac_equal(sensor_peers[i], mac)) {
+      return;
+    }
+  }
+
+  if (sensor_peer_count >= MAX_SENSOR_PEERS) {
+    Serial.println("Sensor peer table full");
+    return;
+  }
+
+  memcpy(sensor_peers[sensor_peer_count], mac, 6);
+  sensor_peer_count++;
+  add_peer_if_needed(mac);
+}
+
 /* ============================
-   SEND STATUS TO ORCHESTRATOR
+   SEND STATUS TO MASTER
 ============================ */
 
 void send_status() {
   farm_packet_t pkt;
 
   WiFi.macAddress(pkt.source_mac);
-  memcpy(pkt.destination_mac, orchestrator_mac, 6);
+  memcpy(pkt.destination_mac, master_mac, 6);
 
   pkt.section_id = SECTION_ID;
   pkt.node_id = 0;
@@ -136,35 +184,45 @@ void send_status() {
   pkt.status.fertilizer_state = fertilizer_state;
 
   esp_now_send(
-    orchestrator_mac,
+    master_mac,
     (uint8_t*)&pkt,
     sizeof(pkt)
   );
 
-  Serial.println("Status sent to orchestrator");
+  Serial.println("Status sent to master");
 }
 
 /* ============================
-   HANDLE SENSOR DATA
+   FORWARD WEATHER DATA
 ============================ */
 
-void handle_sensor_packet(farm_packet_t *pkt) {
-  Serial.println("Sensor packet received");
+void handle_weather_packet(
+  farm_packet_t *pkt,
+  const uint8_t *sensor_mac
+) {
+  remember_sensor_peer(sensor_mac);
 
-  Serial.printf("Node ID: %d\n", pkt->node_id);
-  Serial.printf("Moisture: %.2f\n", pkt->sensor.moisture);
-  Serial.printf("Temperature: %.2f\n", pkt->sensor.temperature);
-  Serial.printf("Humidity: %.2f\n", pkt->sensor.humidity);
-  Serial.printf("pH: %.2f\n", pkt->sensor.pH);
+  Serial.printf(
+    "Weather packet from node %d\n",
+    pkt->node_id
+  );
+  Serial.printf("temperature_2m: %.2f\n", pkt->weather.temperature_2m);
+  Serial.printf("relative_humidity_2m: %.2f\n", pkt->weather.relative_humidity_2m);
+  Serial.printf("soil_temperature_0_to_7cm: %.2f\n", pkt->weather.soil_temperature_0_to_7cm);
+  Serial.printf("et0_fao_evapotranspiration: %.3f\n", pkt->weather.et0_fao_evapotranspiration);
+  Serial.printf("shortwave_radiation: %.2f\n", pkt->weather.shortwave_radiation);
 
-  /* Forward upstream */
+  WiFi.macAddress(pkt->source_mac);
+  memcpy(pkt->destination_mac, master_mac, 6);
+  pkt->section_id = SECTION_ID;
+
   esp_now_send(
-    orchestrator_mac,
+    master_mac,
     (uint8_t*)pkt,
     sizeof(*pkt)
   );
 
-  Serial.println("Forwarded sensor data to orchestrator");
+  Serial.println("Forwarded weather data to master");
 }
 
 /* ============================
@@ -178,47 +236,19 @@ void handle_control_packet(farm_packet_t *pkt) {
   spray_state = pkt->control.spray_pesticide;
   fertilizer_state = pkt->control.apply_fertilizer;
 
-  digitalWrite(
-    VALVE_PIN,
-    valve_state ? HIGH : LOW
-  );
+  digitalWrite(VALVE_PIN, valve_state ? HIGH : LOW);
+  digitalWrite(SPRAY_PIN, spray_state ? HIGH : LOW);
+  digitalWrite(FERTILIZER_PIN, fertilizer_state ? HIGH : LOW);
 
-  digitalWrite(
-    SPRAY_PIN,
-    spray_state ? HIGH : LOW
-  );
-
-  digitalWrite(
-    FERTILIZER_PIN,
-    fertilizer_state ? HIGH : LOW
-  );
-
-  Serial.printf(
-    "Valve: %s\n",
-    valve_state ? "ON" : "OFF"
-  );
-
-  Serial.printf(
-    "Spray: %s\n",
-    spray_state ? "ON" : "OFF"
-  );
-
-  Serial.printf(
-    "Fertilizer: %s\n",
-    fertilizer_state ? "ON" : "OFF"
-  );
+  Serial.printf("Valve: %s\n", valve_state ? "ON" : "OFF");
+  Serial.printf("Spray: %s\n", spray_state ? "ON" : "OFF");
+  Serial.printf("Fertilizer: %s\n", fertilizer_state ? "ON" : "OFF");
 
   if (valve_state) {
-    delay(
-      pkt->control.irrigation_duration_sec * 1000
-    );
+    delay(pkt->control.irrigation_duration_sec * 1000);
 
     valve_state = false;
-
-    digitalWrite(
-      VALVE_PIN,
-      LOW
-    );
+    digitalWrite(VALVE_PIN, LOW);
 
     Serial.println("Irrigation cycle complete");
   }
@@ -230,11 +260,13 @@ void handle_control_packet(farm_packet_t *pkt) {
    ROUTER
 ============================ */
 
-void route_packet(farm_packet_t *pkt) {
+void route_packet(
+  farm_packet_t *pkt,
+  const uint8_t *sender_mac
+) {
   switch (pkt->type) {
-
-    case MSG_SENSOR_DATA:
-      handle_sensor_packet(pkt);
+    case MSG_WEATHER_DATA:
+      handle_weather_packet(pkt, sender_mac);
       break;
 
     case MSG_CONTROL_CMD:
@@ -242,7 +274,8 @@ void route_packet(farm_packet_t *pkt) {
       break;
 
     case MSG_STATUS:
-      Serial.println("Status packet ignored");
+      Serial.println("Sensor heartbeat received");
+      remember_sensor_peer(sender_mac);
       break;
 
     default:
@@ -266,13 +299,6 @@ void on_data_sent(
   } else {
     Serial.println("Fail");
   }
-
-  if (tx_info) {
-        Serial.printf(
-            "Address received the packet: %d\n",
-            tx_info->des_addr
-        );
-    }
 }
 
 /* ============================
@@ -284,18 +310,18 @@ void on_data_recv(
   const uint8_t *incoming_data,
   int len
 ) {
-  farm_packet_t pkt;
+  if (len != sizeof(farm_packet_t)) {
+    Serial.println("Invalid packet size");
+    return;
+  }
 
-  memcpy(
-    &pkt,
-    incoming_data,
-    sizeof(pkt)
-  );
+  farm_packet_t pkt;
+  memcpy(&pkt, incoming_data, sizeof(pkt));
 
   Serial.print("Packet from: ");
   print_mac(recv_info->src_addr);
 
-  route_packet(&pkt);
+  route_packet(&pkt, recv_info->src_addr);
 }
 
 /* ============================
@@ -308,32 +334,10 @@ void init_espnow() {
     ESP.restart();
   }
 
-  esp_now_register_send_cb(
-    on_data_sent
-  );
+  esp_now_register_send_cb(on_data_sent);
+  esp_now_register_recv_cb(on_data_recv);
 
-  esp_now_register_recv_cb(
-    on_data_recv
-  );
-
-  esp_now_peer_info_t peerInfo = {};
-  memcpy(
-    peerInfo.peer_addr,
-    orchestrator_mac,
-    6
-  );
-
-  peerInfo.channel = WIFI_CHANNEL;
-  peerInfo.encrypt = false;
-
-  if (
-    esp_now_add_peer(&peerInfo)
-    != ESP_OK
-  ) {
-    Serial.println(
-      "Failed to add orchestrator peer"
-    );
-  }
+  add_peer_if_needed(master_mac);
 }
 
 /* ============================
@@ -341,35 +345,13 @@ void init_espnow() {
 ============================ */
 
 void init_gpio() {
-  pinMode(
-    VALVE_PIN,
-    OUTPUT
-  );
+  pinMode(VALVE_PIN, OUTPUT);
+  pinMode(SPRAY_PIN, OUTPUT);
+  pinMode(FERTILIZER_PIN, OUTPUT);
 
-  pinMode(
-    SPRAY_PIN,
-    OUTPUT
-  );
-
-  pinMode(
-    FERTILIZER_PIN,
-    OUTPUT
-  );
-
-  digitalWrite(
-    VALVE_PIN,
-    LOW
-  );
-
-  digitalWrite(
-    SPRAY_PIN,
-    LOW
-  );
-
-  digitalWrite(
-    FERTILIZER_PIN,
-    LOW
-  );
+  digitalWrite(VALVE_PIN, LOW);
+  digitalWrite(SPRAY_PIN, LOW);
+  digitalWrite(FERTILIZER_PIN, LOW);
 }
 
 /* ============================
@@ -385,17 +367,9 @@ void setup() {
   init_gpio();
   init_espnow();
 
-  Serial.println(
-    "Section Node Online"
-  );
-
-  Serial.print(
-    "Orchestrator MAC: "
-  );
-
-  print_mac(
-    orchestrator_mac
-  );
+  Serial.println("Section Node Online");
+  Serial.print("Master MAC: ");
+  print_mac(master_mac);
 }
 
 /* ============================
@@ -405,10 +379,7 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  if (
-    now - last_status_time >
-    STATUS_INTERVAL_MS
-  ) {
+  if (now - last_status_time > STATUS_INTERVAL_MS) {
     send_status();
     last_status_time = now;
   }

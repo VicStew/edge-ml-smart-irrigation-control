@@ -1,0 +1,338 @@
+\documentclass[12pt,a4paper]{report}
+\usepackage[a4paper, margin=1.8cm]{geometry}
+\usepackage{setspace}
+\usepackage{float}
+\usepackage[utf8]{inputenc}
+\usepackage{indentfirst}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage{pdfpages}
+\usepackage{titletoc}
+\usepackage{listings}
+\usepackage{framed} % Framing content
+\usepackage{natbib}
+%\usepackage[sort&compress, numbers]{natbib}
+\usepackage{lineno, hyperref}
+\usepackage{graphicx}
+\usepackage{diagbox}
+\usepackage{float}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{mathtools, cuted}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{lipsum}
+\usepackage{booktabs}
+\usepackage[abs]{overpic}
+\usepackage{framed} % Framing content
+\usepackage{multicol} % Multiple columns environment
+\usepackage{nomencl}
+\makenomenclature
+\usepackage{colortbl}
+\usepackage{pgfplots}
+\usepackage[font=large]{caption}
+\usepackage{subcaption}
+\usepackage{circuitikz}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usetikzlibrary{shapes.geometric,arrows.meta,matrix,shapes,arrows,positioning,chains}
+
+\hypersetup{
+	colorlinks=true,
+	citecolor=blue,	
+	linkcolor=blue,
+	filecolor=magenta,      
+	urlcolor=cyan,
+}
+
+\renewcommand*\nompreamble{\begin{multicols}{2}}
+	\renewcommand*\nompostamble{\end{multicols}}
+
+\usepackage{color}
+\usepackage{listings}
+\definecolor{mygreen}{rgb}{0,0.6,0}
+\definecolor{mygray}{rgb}{0.5,0.5,0.5}
+\definecolor{mymauve}{rgb}{0.58,0,0.82}
+\definecolor{myorange}{rgb}{0.855,0.576,0.027}
+\lstset{
+	language=Octave,
+	frame=single,   
+	morecomment = [l][\itshape\color{blue}]{\%},
+	keywordstyle=\color{blue},
+	commentstyle=\color{mygreen},
+	breakatwhitespace=false,         
+	breaklines=true,  
+	numbers=left,
+	numbersep=5pt,
+	numberstyle=\tiny\color{mygray}, 
+	showstringspaces=false,
+	showtabs=false,                  
+	tabsize=2,
+	stringstyle=\color{myorange},
+	title=\lstname,
+	literate=
+	{+}{{{\color{red}+}}}1
+	{-}{{{\color{red}-}}}1
+	{*}{{{\color{red}*}}}1
+	{,}{{{\color{red},}}}1
+	{=}{{{\color{red}=}}}1
+	{)}{{{\color{red})}}}1
+	{(}{{{\color{red}(}}}1
+	{;}{{{\color{red};}}}1
+	{:}{{{\color{red}:}}}1
+	{[}{{{\color{red}[}}}1
+	{]}{{{\color{red}]}}}1
+	{>}{{{\color{red}>}}}1
+}
+
+\begin{document}
+	
+	\begin{titlepage}
+		\begin{center}
+			\vspace*{1cm}			
+			\includegraphics[width=0.4\textwidth]{uon-logo}\\		
+			\Large
+			University of Nairobi\\
+			Faculty of Science and Technology\\
+			Department of Physics\\	
+			\vspace{1cm}
+			
+			\textbf{TYPE your title here}	
+			\vspace{1cm}\\
+			by	
+			\vspace{1cm}
+			
+			\textbf{Victor Stewart Ngunyi}\\
+			
+			\vfill			
+			\textbf{I39/2920/2021}
+			\vfill	
+		\end{center}		
+	A Project Report Submitted in Fulfillment of the Requirements for the award of the Degree of Bachelor of Science in Physics of the University of Nairobi\\
+		\centering
+		\Huge
+		\textbf{May, 2026}
+	\end{titlepage}
+	
+\setcounter{page}{1}
+\pagenumbering{roman}
+\chapter*{DECLARATION}
+\addcontentsline{toc}{chapter}{DECLARATION}
+I declare that this project is my original work and has not been submitted elsewhere for research. Where other people’s work has been used, this has properly been acknowledged and referenced in accordance with the University of Nairobi’s requirements. 
+	\\
+	
+\noindent 	\textbf{Victor Stewart Ngunyi}\\
+I39/2920/2021\\
+Department of Physics\\
+University of Nairobi\\
+victorstew5@students.uonbi.ac.ke\\
+	
+Signature ………………………………… Date………………	\\
+	
+	
+\noindent This project report is submitted for examination with our approval as research supervisors:
+	\\
+	
+	\noindent \textbf{Supervisor 1}\\
+	University of Nairobi \\
+	Department of Physics\\
+	P.O. Box 30197 - 00100,\\
+	Nairobi, Kenya\\
+	supervisor-email@uonbi.ac.ke\\
+	
+Signature ………………………………… Date………………
+	\\
+	
+\noindent \textbf{Supervisor 2}\\
+University of Nairobi \\
+Department of Physics\\
+P.O. Box 30197 - 00100,\\
+Nairobi, Kenya\\
+supervisor-email@uonbi.ac.ke\\
+	
+Signature ………………………………… Date………………
+	\doublespacing
+	
+\chapter*{ABSTRACT}
+\addcontentsline{toc}{chapter}{ABSTRACT}
+Write you abstract here
+
+\cleardoublepage
+\titlecontents{chapter}% <section-type>
+[0pt]% <left>
+{\bfseries}% <above-code>
+{\chaptername\ \thecontentslabel:\quad}% <numbered-entry-format>
+{}% <numberless-entry-format>
+{\hfill\contentspage}% <filler-page-format>
+%\singlespacing
+\renewcommand{\contentsname}{TABLE OF CONTENTS}
+\tableofcontents
+\addcontentsline{toc}{chapter}{TABLE OF CONTENTS}
+\doublespacing
+
+\listoffigures
+\addcontentsline{toc}{chapter}{LIST OF FIGURES}
+\cleardoublepage
+\listoftables
+\addcontentsline{toc}{chapter}{LIST OF TABLES}
+\newpage
+	\renewcommand{\nomname}{LIST OF ABBREVIATIONS, ACRONYMS AND SYMBOLS}
+	\addcontentsline{toc}{chapter}{LIST OF ABBREVIATIONS, ACRONYMS AND SYMBOLS}
+	\mbox{}
+	\begin{table*}[!t]   
+		\nomenclature{$LIBS$}{Laser Induced Breakdown Spectroscopy}
+		\nomenclature{$LPE$}{Laser Pulse Energy}
+		\nomenclature{$SNR$}{Signal to Noise Ratio}
+		\nomenclature{$DP-LIBS$}{Double Pulse LIBS}
+		\nomenclature{$\alpha$}{Elevation/altitude angle}
+		\nomenclature{MVA}{Multivariate Analysis}
+		\nomenclature{$\theta$}{Zenith angle}
+		\nomenclature{$\beta$}{Tilt angle}
+		\nomenclature{$n$}{Diode ideality factor}
+		
+		\printnomenclature[1.5cm]
+		
+	\end{table*}
+	
+	\cleardoublepage
+\chapter{Introduction}
+\setcounter{page}{1}
+\pagenumbering{arabic}
+\section{Research Background }
+The introduction gives a detailed background of the work the student has undertaken, including what is known. Background information might be historical in nature or it might refer to previous research. The background should convince the reader why the topic is important and why the approach used is relevant.
+The Introduction chapter tends to be relatively short and written in easy-to-read language. It is written for the general audience to gain an appreciation of what the research is about and why it should matter to them.
+The Introduction also captures a statement of the problem, the objectives and significance of the study. It is important to define the scope of the study.
+A good introduction should contain a number of references, some of which should be a few years old, thus showing that the candidate is conversant with the latest information regarding the topic investigated.
+It is advisable to structure the “Introduction” into sections and sub-sections which are logically sequenced to provide a document that flows for easy readability.
+
+
+\section{Statement of the Problem}
+The statement of the problem should be defined in a section in the introduction with its own heading to clearly articulate the nature or severity of the problem addressed in the research.
+"Statement of the Problem" is a description of a difficulty that has been solved or at least researched to see whether a solution was found.
+The ultimate goal of the statement of the problem is to transform a generalized problem (something that bothers you) into a targeted, well-defined problem that can be resolved through focused research and careful decision-making.
+\section{General Objectives} 
+Research objectives are the specific goals that a study sets out to realize by the time the research is completed. They form a very important part of the research and if not spelt out clearly and concisely, the research exercise may suffer many shortfalls. Therefore all the research objectives should be presented clearly in list form and should spell out all the goals the candidate intends to accomplish. 
+In the Objectives section of the Introduction, the candidates must indicate the overall objective (big goal-rarely achievable in the life time of the research), as a paragraph or a sentence of its own, then the specific objectives (smaller goals-usually achievable in the timeframe of the research) follow as an itemized list. The objectives must have action words, e.g., identify, develop, elucidate, assess, determine, simulate etc.
+
+The overall objective of this research is to .....
+\section{Specific Objective}
+\begin{enumerate}[label=(\roman*)]
+	\item To model and simulate ....  
+	\item To analyze .....
+	\item To distinguish ...
+\end{enumerate}
+
+\section {Justification and Significance of the Study} 
+This section of the Introduction follows after the Objectives section.
+Justification (rationale) deals with reasons that make the problem to be investigated a concern to a scientific community or society in general. It could be that the problem has not been properly or adequately investigated by previous researchers and therefore requires to be revisited with a view to correcting any misconceptions or filling any missing gaps in the knowledge about the problem. Misconceptions may be related to conclusions arrived at by previous workers or methodologies adopted in carrying out previous investigations. All these need to be corrected. A gap in knowledge about the problem may exist whereby previous researchers either missed proper equipment or techniques to investigate certain vital aspects of the problem and therefore vital information e.g. date of a rock type, is missing. Filling such a gap indeed will form part of the justification for carrying the investigation and should be stated.
+\section{Significance of the Study}
+Significance (importance) is mainly concerned with reasons why the candidate thinks the outcome of the research would be useful to science, society or community in which the research will be conducted. One among such reasons may be that the results will contribute extra knowledge in the subject area of research and either spur future research, serve as a framework for policy formulation or basis for implementing development.
+
+
+\chapter {Literature Review}
+The role of the literature review is to bring out, in a systematic way, the extent to which the problem has been solved by other researchers or show what is already known about the research topic as a whole. It also outlines the key ideas and theories that help to understand this and clearly establish where the knowledge gaps are in the intended area of research.
+As well as being systematic, the review should be evaluative and critical of the studies or ideas which are relevant to the research. For example, you may think a particular study did not investigate some important aspect of the area you are to research, that the authors failed to notice a weakness in their methods, or that their conclusion is not well-supported.\citep{kombo2006proposal}
+Although, the literature review is usually written for the expert reader in the discipline, all the terminologies that need to be explained should be addressed in sufficient detail in the literature review.
+It is important that the literature review be exhaustive (contain detailed reference citations), up-to-date (contain references that are a few years old) and cover a wide survey of the knowledge accumulated in the subject area by previous researchers up to the time the candidate is writing the report.
+It is advisable to structure the “Literature Review” into sections which are logically sequenced to provide the reader with a clear understanding of the research area and its knowledge gaps
+
+\section*{Citation Placement in Literature review}
+The citation statement can be appropriately placed at the beginning, middle or at end of sentences as you continuously synthesize your work. The following are examples of citations statement indicating when the citations 
+are either at the beginning, middle or end of the sentence. 
+\subsection*{Beginning of Sentence}
+\cite{parker2009challenge} reported that empirical research verified compliance. 
+\subsection*{Middle of Sentence} 
+After looking into the issue, \cite{ndegwa2020fast} stated that the findings were not valid. 
+\subsection*{End of sentence} 
+The report concluded were victims of cyber terrorism \citep{jangada2022explorative}.
+
+It is important to note that where the citation is placed within the text depends on whether you want the author to be 
+prominent or the idea to be prominent.
+Information prominent (the author(s) name is within parentheses) and mainly at the end or 
+middle: E.G. The conclusion reached in a recent study (Jones \& Wallace, 2007) was that… 
+Author prominent (the author(s) name is outside the parentheses) and mainly at the beginning of 
+the sentence or middle: 
+E.g. Jones and Wallace (2007) concluded that… 
+Note that “and” is replaced by the ampersand sign (“\&”) when the author(s) 
+and Year are both in brackets, e.g. (Jones \& Wallace, 2012).
+3fdm printer  was recently developed by \cite{hoque2019design}
+You can divide your literure review into subtopics to review different topics related to your research.
+
+\section{Write Subtopic I here}
+
+\section{Write Subtopic II here}
+
+\section{Write subtopic III here}
+
+
+\chapter{Theory}
+This chapter is optional and can be included in very exceptional cases in Physics in those studies where the theory underlying the methods to be employed in a study is not widely established. The candidate may expound on the theory in justifying the choice of methods used in the study. See example below.
+\section{Put Theory I subtopic here}
+\begin{equation}
+	\label{eq:1}
+	F=ma
+\end{equation}
+
+\begin{equation}
+	\label{eq:2}
+	\Sigma F=m\ddot{\textbf{r}}
+\end{equation}
+
+\section{Put Theory II  subtopic here}
+\begin{equation}
+	\label{eq:3}
+	\ddot{\textbf{r}}=-\frac{\mu}{r^{2}}\textbf{r}
+\end{equation}
+
+\chapter{Methodology or Materials and Methods}
+The methods should be clear and detailed enough for another experienced person to follow and reproduce the outcomes.
+All the data, materials and their sources, instruments and software that have been used by the candidate should be included in this chapter. In case of a field study, detailed maps of the study area and the sampling points should be specified. Circuits and diagrams developed or used in the studies should be inserted and described in this section. All algorithms should be cleared discussed using the flowchart
+
+\section{Study Area and Materials}
+In case of a field study, detailed maps of the study area and the sampling points should be specified. Where maps are included, they should be legible and the direction NORTH must be shown, a key to symbols on the map and the scale (e.g. 1: 10,000 km) must also be indicated
+
+\section{Research design}
+
+\section{Experimental techniques}
+
+\section{Data analysis and presentation}
+
+\chapter{Results, Discussion, Conclusion and Recommendations}
+The results and outcome of the study should be clearly stated in this section. All graphs, important tables should be presented in this section
+
+\section{Write Results Subtopic I here}
+
+\section{Write Results Subtopic II here}
+
+\section{Write Results subtopic III here}
+
+\section {Conclusion}
+
+The conclusion section should be very brief, about half a page.It should indicate what the study results reaffirm. it should also briefly discuss some of the strategies highlighted by the respondents. in this section, the researcher should clearly state the how the study has contributed to knowledge.
+
+\section {Recommendations}
+
+\singlespacing
+\renewcommand{\bibname}{REFERENCES}
+
+\bibliography{ref}\bibliographystyle{FSTstyle}
+\addcontentsline{toc}{chapter}{REFERENCES}
+
+The following section explain the use of google scholar generate list of references.
+
+\begin{itemize}
+	\item Use FSTStyle format of referencing
+	\item Use bibtex from google scholar to generate .bib file
+	\item copy and paste the whole bibtex window content in to your ref.bib. You can choose your own word to replace the word ref but ensure it is the same word in bibliography{ref}.
+	\item In google scholar go to setting and select the bibTEX as demonstrated in the attached figure
+	\vspace{1cm}\\
+	In https://scholar.google.com/\\ settings, select
+	
+	\includegraphics[width=0.5\textwidth]{googlescholar}\\		
+	\item Note: if you use texstudio or any other latex editor, ensure the bibtex file with extension .bib is in the same folder containing .tex file. 
+\end{itemize}
+The references cited should be as recent as possible, some which are a few years.
+
+Internet references need to be separated from the other references – usually as a subsection titled “Internet References” indicating – link validation date.
+	
+\end{document}

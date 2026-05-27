@@ -1,6 +1,6 @@
 {
-  "train_rows": 42086,
-  "test_rows": 10522,
+  "train_rows": 77145,
+  "test_rows": 19287,
   "feature_columns": [
     "temperature_2m",
     "relative_humidity_2m",
@@ -10,12 +10,12 @@
   ],
   "amount_models": {
     "mlp_sensors": {
-      "mae_mm": 0.13892054557800293,
-      "rmse_mm": 0.4766670800198361,
-      "r2": 0.24922996759414673,
-      "rainy_hours_count": 3184,
-      "rainy_mae_mm": 0.3205680549144745,
-      "rainy_rmse_mm": 0.8536889709844273
+      "mae_mm": 0.15259917080402374,
+      "rmse_mm": 0.5145708058128347,
+      "r2": 0.19151687622070312,
+      "rainy_hours_count": 5832,
+      "rainy_mae_mm": 0.3473491072654724,
+      "rainy_rmse_mm": 0.9165818471391605
     }
   },
   "selected_amount_model": "mlp_sensors"

@@ -2,6 +2,8 @@
 #include <esp_now.h>
 #include <esp_mac.h>
 
+#include "recent_weather_sample.h"
+
 /* ============================
    CONFIGURATION
 ============================ */
@@ -19,7 +21,7 @@
 ============================ */
 
 uint8_t section_mac[6] = {
-  0x24, 0x6F, 0x28, 0x11, 0x22, 0x33
+  0x3C, 0xE9, 0x0E, 0x94, 0xA6, 0x88
 };
 
 /* ============================
@@ -27,26 +29,24 @@ uint8_t section_mac[6] = {
 ============================ */
 
 typedef enum {
-  MSG_SENSOR_DATA = 1,
+  MSG_WEATHER_DATA = 1,
   MSG_CONTROL_CMD = 2,
   MSG_STATUS = 3,
   MSG_ACK = 4
 } msg_type_t;
 
 /* ============================
-   SENSOR PAYLOAD
+   WEATHER PAYLOAD
 ============================ */
 
 typedef struct {
-  float moisture;
-  float temperature;
-  float humidity;
-  float pH;
-  float nitrogen;
-  float phosphorus;
-  float potassium;
-  float light;
-} sensor_payload_t;
+  uint32_t sample_time;
+  float temperature_2m;
+  float relative_humidity_2m;
+  float soil_temperature_0_to_7cm;
+  float et0_fao_evapotranspiration;
+  float shortwave_radiation;
+} weather_payload_t;
 
 /* ============================
    CONTROL PAYLOAD
@@ -84,7 +84,7 @@ typedef struct {
   msg_type_t type;
 
   union {
-    sensor_payload_t sensor;
+    weather_payload_t weather;
     control_payload_t control;
     status_payload_t status;
   };
@@ -100,6 +100,7 @@ unsigned long last_heartbeat = 0;
 
 uint32_t packet_counter = 0;
 uint32_t packets_sent = 0;
+uint8_t weather_sample_index = 0;
 
 /* ============================
    HELPERS
@@ -113,34 +114,32 @@ void print_mac(const uint8_t *mac) {
   );
 }
 
-/* ============================
-   SENSOR DATA GENERATOR
-   Replace with real sensors later
-============================ */
+weather_payload_t read_weather_sample() {
+  recent_weather_sample_t sample =
+    RECENT_WEATHER_SAMPLES[
+      weather_sample_index
+    ];
 
-sensor_payload_t read_sensors() {
-  sensor_payload_t s;
+  weather_payload_t reading;
+  reading.sample_time = sample.sample_time;
+  reading.temperature_2m = sample.temperature_2m;
+  reading.relative_humidity_2m = sample.relative_humidity_2m;
+  reading.soil_temperature_0_to_7cm = sample.soil_temperature_0_to_7cm;
+  reading.et0_fao_evapotranspiration = sample.et0_fao_evapotranspiration;
+  reading.shortwave_radiation = sample.shortwave_radiation;
 
-  s.moisture = 20 + random(60);
-  s.temperature = 18 + random(15);
-  s.humidity = 40 + random(50);
+  weather_sample_index =
+    (weather_sample_index + 1) %
+    RECENT_WEATHER_SAMPLE_COUNT;
 
-  s.pH = 5.5 + (random(30) / 10.0);
-
-  s.nitrogen = random(100);
-  s.phosphorus = random(100);
-  s.potassium = random(100);
-
-  s.light = random(1000);
-
-  return s;
+  return reading;
 }
 
 /* ============================
-   SEND SENSOR PACKET
+   SEND WEATHER PACKET
 ============================ */
 
-void send_sensor_packet() {
+void send_weather_packet() {
   farm_packet_t pkt;
 
   WiFi.macAddress(pkt.source_mac);
@@ -150,9 +149,8 @@ void send_sensor_packet() {
   pkt.node_id = NODE_ID;
 
   pkt.sequence = packet_counter++;
-  pkt.type = MSG_SENSOR_DATA;
-
-  pkt.sensor = read_sensors();
+  pkt.type = MSG_WEATHER_DATA;
+  pkt.weather = read_weather_sample();
 
   esp_err_t result =
     esp_now_send(
@@ -164,33 +162,14 @@ void send_sensor_packet() {
   if (result == ESP_OK) {
     packets_sent++;
 
-    Serial.println(
-      "Sensor packet sent"
-    );
-
-    Serial.printf(
-      "Moisture: %.2f\n",
-      pkt.sensor.moisture
-    );
-
-    Serial.printf(
-      "Temperature: %.2f\n",
-      pkt.sensor.temperature
-    );
-
-    Serial.printf(
-      "Humidity: %.2f\n",
-      pkt.sensor.humidity
-    );
-
-    Serial.printf(
-      "pH: %.2f\n",
-      pkt.sensor.pH
-    );
+    Serial.println("Weather packet sent");
+    Serial.printf("temperature_2m: %.2f\n", pkt.weather.temperature_2m);
+    Serial.printf("relative_humidity_2m: %.2f\n", pkt.weather.relative_humidity_2m);
+    Serial.printf("soil_temperature_0_to_7cm: %.2f\n", pkt.weather.soil_temperature_0_to_7cm);
+    Serial.printf("et0_fao_evapotranspiration: %.3f\n", pkt.weather.et0_fao_evapotranspiration);
+    Serial.printf("shortwave_radiation: %.2f\n", pkt.weather.shortwave_radiation);
   } else {
-    Serial.println(
-      "Failed to send sensor packet"
-    );
+    Serial.println("Failed to send weather packet");
   }
 }
 
@@ -220,9 +199,7 @@ void send_heartbeat() {
     sizeof(pkt)
   );
 
-  Serial.println(
-    "Heartbeat sent"
-  );
+  Serial.println("Heartbeat sent");
 }
 
 /* ============================
@@ -232,36 +209,23 @@ void send_heartbeat() {
 void handle_control_packet(
   farm_packet_t *pkt
 ) {
-  Serial.println(
-    "Control command received"
-  );
+  Serial.println("Control command received");
 
   if (pkt->control.irrigate) {
-    Serial.println(
-      "Irrigation scheduled"
+    Serial.printf(
+      "Irrigation scheduled for %u sec\n",
+      pkt->control.irrigation_duration_sec
     );
   }
 
-  if (
-    pkt->control.spray_pesticide
-  ) {
-    Serial.println(
-      "Pesticide scheduled"
-    );
+  if (pkt->control.spray_pesticide) {
+    Serial.println("Pesticide scheduled");
   }
 
-  if (
-    pkt->control.apply_fertilizer
-  ) {
-    Serial.println(
-      "Fertilizer scheduled"
-    );
+  if (pkt->control.apply_fertilizer) {
+    Serial.println("Fertilizer scheduled");
   }
 }
-
-/* ============================
-   HANDLE ACK
-============================ */
 
 void handle_ack_packet(
   farm_packet_t *pkt
@@ -280,51 +244,34 @@ void route_packet(
   farm_packet_t *pkt
 ) {
   switch (pkt->type) {
-
     case MSG_CONTROL_CMD:
-      handle_control_packet(
-        pkt
-      );
+      handle_control_packet(pkt);
       break;
 
     case MSG_ACK:
-      handle_ack_packet(
-        pkt
-      );
+      handle_ack_packet(pkt);
       break;
 
     default:
-      Serial.println(
-        "Unknown packet type"
-      );
+      Serial.println("Unknown packet type");
       break;
   }
 }
 
 /* ============================
    SEND CALLBACK
-   Arduino ESP32 v3+
 ============================ */
 
 void on_data_sent(
   const wifi_tx_info_t *tx_info,
   esp_now_send_status_t status
 ) {
-  Serial.print(
-    "Send Status: "
-  );
+  Serial.print("Send Status: ");
 
-  if (
-    status ==
-    ESP_NOW_SEND_SUCCESS
-  ) {
-    Serial.println(
-      "Success"
-    );
+  if (status == ESP_NOW_SEND_SUCCESS) {
+    Serial.println("Success");
   } else {
-    Serial.println(
-      "Failed"
-    );
+    Serial.println("Failed");
   }
 }
 
@@ -337,25 +284,18 @@ void on_data_recv(
   const uint8_t *incoming_data,
   int len
 ) {
+  if (len != sizeof(farm_packet_t)) {
+    Serial.println("Invalid packet size");
+    return;
+  }
+
   farm_packet_t pkt;
+  memcpy(&pkt, incoming_data, sizeof(pkt));
 
-  memcpy(
-    &pkt,
-    incoming_data,
-    sizeof(pkt)
-  );
+  Serial.print("Packet received from: ");
+  print_mac(recv_info->src_addr);
 
-  Serial.print(
-    "Packet received from: "
-  );
-
-  print_mac(
-    recv_info->src_addr
-  );
-
-  route_packet(
-    &pkt
-  );
+  route_packet(&pkt);
 }
 
 /* ============================
@@ -363,47 +303,22 @@ void on_data_recv(
 ============================ */
 
 void init_espnow() {
-  if (
-    esp_now_init()
-    != ESP_OK
-  ) {
-    Serial.println(
-      "ESP-NOW init failed"
-    );
-
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW init failed");
     ESP.restart();
   }
 
-  esp_now_register_send_cb(
-    on_data_sent
-  );
-
-  esp_now_register_recv_cb(
-    on_data_recv
-  );
+  esp_now_register_send_cb(on_data_sent);
+  esp_now_register_recv_cb(on_data_recv);
 
   esp_now_peer_info_t peerInfo = {};
 
-  memcpy(
-    peerInfo.peer_addr,
-    section_mac,
-    6
-  );
+  memcpy(peerInfo.peer_addr, section_mac, 6);
+  peerInfo.channel = WIFI_CHANNEL;
+  peerInfo.encrypt = false;
 
-  peerInfo.channel =
-    WIFI_CHANNEL;
-
-  peerInfo.encrypt =
-    false;
-
-  if (
-    esp_now_add_peer(
-      &peerInfo
-    ) != ESP_OK
-  ) {
-    Serial.println(
-      "Failed to add section peer"
-    );
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Failed to add section peer");
   }
 }
 
@@ -412,31 +327,16 @@ void init_espnow() {
 ============================ */
 
 void setup() {
-  Serial.begin(
-    115200
-  );
+  Serial.begin(115200);
 
-  WiFi.mode(
-    WIFI_STA
-  );
-
-  WiFi.setChannel(
-    WIFI_CHANNEL
-  );
+  WiFi.mode(WIFI_STA);
+  WiFi.setChannel(WIFI_CHANNEL);
 
   init_espnow();
 
-  Serial.println(
-    "Sensor Node Online"
-  );
-
-  Serial.print(
-    "Section MAC: "
-  );
-
-  print_mac(
-    section_mac
-  );
+  Serial.println("Sensor Node Online");
+  Serial.print("Section MAC: ");
+  print_mac(section_mac);
 }
 
 /* ============================
@@ -444,24 +344,15 @@ void setup() {
 ============================ */
 
 void loop() {
-  unsigned long now =
-    millis();
+  unsigned long now = millis();
 
-  if (
-    now - last_send >
-    SEND_INTERVAL_MS
-  ) {
-    send_sensor_packet();
-
+  if (now - last_send > SEND_INTERVAL_MS) {
+    send_weather_packet();
     last_send = now;
   }
 
-  if (
-    now - last_heartbeat >
-    HEARTBEAT_INTERVAL_MS
-  ) {
+  if (now - last_heartbeat > HEARTBEAT_INTERVAL_MS) {
     send_heartbeat();
-
     last_heartbeat = now;
   }
 }
