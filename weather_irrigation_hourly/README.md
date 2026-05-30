@@ -43,11 +43,12 @@ This folder contains the main rainfall model training pipeline used by the maste
 1. `fetch_hourly_weather_data.py` downloads Open-Meteo archive data for the configured farm location and normalizes column names.
 2. `train_hourly_rainfall_model.py` loads `historical_weather_data_hourly.csv`.
 3. The script chronologically splits the data into training and test sets.
-4. It trains a small dense neural network using five features:
+4. It trains a small dense neural network using six features:
 
    - `temperature_2m`
    - `relative_humidity_2m`
    - `soil_temperature_0_to_7cm`
+   - `soil_moisture_0_to_7cm`
    - `shortwave_radiation`
    - `et0_fao_evapotranspiration_mm`
 

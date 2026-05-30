@@ -32,7 +32,7 @@ This folder contains the firmware and helper script for a sensor ESP32. The curr
 1. `setup()` starts serial output, sets WiFi station mode, and registers the section node as an ESP-NOW peer.
 2. `loop()` sends a weather packet every `SEND_INTERVAL_MS`.
 3. `read_weather_sample()` reads the next row from `RECENT_WEATHER_SAMPLES` and cycles through the 24 stored samples.
-4. `send_weather_packet()` sends temperature, humidity, soil temperature, evapotranspiration, and shortwave radiation to the section node.
+4. `send_weather_packet()` sends temperature, humidity, soil temperature, soil moisture, evapotranspiration, and shortwave radiation to the section node.
 5. `send_heartbeat()` sends periodic status packets containing uptime and sent-packet count.
 6. Control commands and acknowledgements received from the section node are printed over serial.
 

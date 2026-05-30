@@ -10,7 +10,7 @@ nb["cells"] = [
         "# 1D CNN Hourly Rainfall Forecasting Using Sensor Data\n\n"
         "This notebook trains a Convolutional Neural Network rainfall forecasting model. "
         "The model predicts the rainfall amount (in mm) directly from a sliding window of sensor readings "
-        "(temperature, humidity, soil temperature, shortwave radiation, and evapotranspiration)."
+        "(temperature, humidity, soil temperature, soil moisture, shortwave radiation, and evapotranspiration)."
     ),
     nbf.v4.new_markdown_cell("## 1. Imports"),
     nbf.v4.new_code_cell(
@@ -47,6 +47,7 @@ nb["cells"] = [
         "    'temperature_2m',\n"
         "    'relative_humidity_2m',\n"
         "    'soil_temperature_0_to_7cm',\n"
+        "    'soil_moisture_0_to_7cm',\n"
         "    'shortwave_radiation',\n"
         "    'et0_fao_evapotranspiration_mm',\n"
         "]\n"

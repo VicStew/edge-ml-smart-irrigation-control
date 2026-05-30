@@ -44,6 +44,7 @@ typedef struct {
   float temperature_2m;
   float relative_humidity_2m;
   float soil_temperature_0_to_7cm;
+  float soil_moisture_0_to_7cm;
   float et0_fao_evapotranspiration;
   float shortwave_radiation;
 } weather_payload_t;
@@ -125,6 +126,7 @@ weather_payload_t read_weather_sample() {
   reading.temperature_2m = sample.temperature_2m;
   reading.relative_humidity_2m = sample.relative_humidity_2m;
   reading.soil_temperature_0_to_7cm = sample.soil_temperature_0_to_7cm;
+  reading.soil_moisture_0_to_7cm = sample.soil_moisture_0_to_7cm;
   reading.et0_fao_evapotranspiration = sample.et0_fao_evapotranspiration;
   reading.shortwave_radiation = sample.shortwave_radiation;
 
@@ -166,6 +168,7 @@ void send_weather_packet() {
     Serial.printf("temperature_2m: %.2f\n", pkt.weather.temperature_2m);
     Serial.printf("relative_humidity_2m: %.2f\n", pkt.weather.relative_humidity_2m);
     Serial.printf("soil_temperature_0_to_7cm: %.2f\n", pkt.weather.soil_temperature_0_to_7cm);
+    Serial.printf("soil_moisture_0_to_7cm: %.3f\n", pkt.weather.soil_moisture_0_to_7cm);
     Serial.printf("et0_fao_evapotranspiration: %.3f\n", pkt.weather.et0_fao_evapotranspiration);
     Serial.printf("shortwave_radiation: %.2f\n", pkt.weather.shortwave_radiation);
   } else {

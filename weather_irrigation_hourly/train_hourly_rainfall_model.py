@@ -46,6 +46,7 @@ FEATURES = [
     "temperature_2m",
     "relative_humidity_2m",
     "soil_temperature_0_to_7cm",
+    "soil_moisture_0_to_7cm",
     "shortwave_radiation",
     "et0_fao_evapotranspiration_mm",
 ]

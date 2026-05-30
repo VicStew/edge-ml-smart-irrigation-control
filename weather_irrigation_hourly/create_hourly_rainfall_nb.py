@@ -13,7 +13,7 @@ nb["cells"] = [
         "This notebook trains an MLP rainfall forecasting model for ESP32 deployment from "
         "`historical_weather_data_hourly.csv` in the `weather_irrigation_hourly` folder. "
         "The model predicts the rainfall amount (in mm) directly from instantaneous weather sensor readings "
-        "(temperature, humidity, soil temperature, shortwave radiation, and evapotranspiration)."
+        "(temperature, humidity, soil temperature, soil moisture, shortwave radiation, and evapotranspiration)."
     ),
     nbf.v4.new_markdown_cell("## 1. Imports"),
     nbf.v4.new_code_cell(
@@ -48,6 +48,7 @@ nb["cells"] = [
         "    'temperature_2m',\n"
         "    'relative_humidity_2m',\n"
         "    'soil_temperature_0_to_7cm',\n"
+        "    'soil_moisture_0_to_7cm',\n"
         "    'shortwave_radiation',\n"
         "    'et0_fao_evapotranspiration_mm',\n"
         "]\n"

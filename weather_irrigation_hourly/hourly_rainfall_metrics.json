@@ -5,17 +5,18 @@
     "temperature_2m",
     "relative_humidity_2m",
     "soil_temperature_0_to_7cm",
+    "soil_moisture_0_to_7cm",
     "shortwave_radiation",
     "et0_fao_evapotranspiration_mm"
   ],
   "amount_models": {
     "mlp_sensors": {
-      "mae_mm": 0.15259917080402374,
-      "rmse_mm": 0.5145708058128347,
-      "r2": 0.19151687622070312,
+      "mae_mm": 0.1409066915512085,
+      "rmse_mm": 0.4961538954191974,
+      "r2": 0.2483537793159485,
       "rainy_hours_count": 5832,
-      "rainy_mae_mm": 0.3473491072654724,
-      "rainy_rmse_mm": 0.9165818471391605
+      "rainy_mae_mm": 0.3287549316883087,
+      "rainy_rmse_mm": 0.8900785610265207
     }
   },
   "selected_amount_model": "mlp_sensors"

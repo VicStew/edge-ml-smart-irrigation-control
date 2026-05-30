@@ -21,6 +21,7 @@ HOURLY_FIELDS = [
     "temperature_2m",
     "relative_humidity_2m",
     "soil_temperature_0_to_7cm",
+    "soil_moisture_0_to_7cm",
     "et0_fao_evapotranspiration",
     "shortwave_radiation",
     "precipitation",
@@ -81,7 +82,10 @@ def write_csv(
 
 
 def format_float(value: object) -> str:
-    return f"{float(value):.6g}f"
+    literal = f"{float(value):.6g}"
+    if "." not in literal and "e" not in literal.lower():
+        literal = f"{literal}.0"
+    return f"{literal}f"
 
 
 def write_header(
@@ -100,6 +104,7 @@ def write_header(
         "  float temperature_2m;",
         "  float relative_humidity_2m;",
         "  float soil_temperature_0_to_7cm;",
+        "  float soil_moisture_0_to_7cm;",
         "  float et0_fao_evapotranspiration;",
         "  float shortwave_radiation;",
         "} recent_weather_sample_t;",
@@ -116,6 +121,7 @@ def write_header(
             f"{format_float(row['temperature_2m'])}, "
             f"{format_float(row['relative_humidity_2m'])}, "
             f"{format_float(row['soil_temperature_0_to_7cm'])}, "
+            f"{format_float(row['soil_moisture_0_to_7cm'])}, "
             f"{format_float(row['et0_fao_evapotranspiration'])}, "
             f"{format_float(row['shortwave_radiation'])}"
             "},"

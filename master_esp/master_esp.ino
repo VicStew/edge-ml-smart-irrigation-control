@@ -44,6 +44,7 @@ typedef struct {
   float temperature_2m;
   float relative_humidity_2m;
   float soil_temperature_0_to_7cm;
+  float soil_moisture_0_to_7cm;
   float et0_fao_evapotranspiration;
   float shortwave_radiation;
 } weather_payload_t;
@@ -202,8 +203,9 @@ void weather_to_features(
   features[0] = weather.temperature_2m;
   features[1] = weather.relative_humidity_2m;
   features[2] = weather.soil_temperature_0_to_7cm;
-  features[3] = weather.shortwave_radiation;
-  features[4] = weather.et0_fao_evapotranspiration;
+  features[3] = weather.soil_moisture_0_to_7cm;
+  features[4] = weather.shortwave_radiation;
+  features[5] = weather.et0_fao_evapotranspiration;
 }
 
 /* ============================
@@ -449,6 +451,7 @@ void handle_weather_packet(
   Serial.printf("temperature_2m: %.2f\n", pkt->weather.temperature_2m);
   Serial.printf("relative_humidity_2m: %.2f\n", pkt->weather.relative_humidity_2m);
   Serial.printf("soil_temperature_0_to_7cm: %.2f\n", pkt->weather.soil_temperature_0_to_7cm);
+  Serial.printf("soil_moisture_0_to_7cm: %.3f\n", pkt->weather.soil_moisture_0_to_7cm);
   Serial.printf("et0_fao_evapotranspiration: %.3f\n", pkt->weather.et0_fao_evapotranspiration);
   Serial.printf("shortwave_radiation: %.2f\n", pkt->weather.shortwave_radiation);
 }

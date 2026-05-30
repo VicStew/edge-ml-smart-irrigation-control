@@ -15,12 +15,20 @@ OUTPUT_CSV = BASE_DIR / "historical_weather_data_hourly.csv"
 LOCAL_TIMEZONE_NAME = "Africa/Nairobi"
 URL = "https://archive-api.open-meteo.com/v1/archive"
 PARAMS = {
-	"latitude": -0.4201,
-	"longitude": 36.9476,
-	"start_date": "2015-01-01",
-	"end_date": "2025-12-31",
-	"hourly": ["temperature_2m", "relative_humidity_2m", "soil_temperature_0_to_7cm", "precipitation", "et0_fao_evapotranspiration", "shortwave_radiation"],
-	"timezone": "Africa/Nairobi",
+    "latitude": -0.4201,
+    "longitude": 36.9476,
+    "start_date": "2015-01-01",
+    "end_date": "2025-12-31",
+    "hourly": [
+        "temperature_2m",
+        "relative_humidity_2m",
+        "soil_temperature_0_to_7cm",
+        "soil_moisture_0_to_7cm",
+        "precipitation",
+        "et0_fao_evapotranspiration",
+        "shortwave_radiation",
+    ],
+    "timezone": "Africa/Nairobi",
 }
 
 INPUT_RENAME_MAP = {
@@ -66,6 +74,7 @@ def normalize_hourly_dataframe(data_df: pd.DataFrame, timezone_name: str) -> pd.
         "temperature_2m",
         "relative_humidity_2m",
         "soil_temperature_0_to_7cm",
+        "soil_moisture_0_to_7cm",
         "shortwave_radiation",
         "et0_fao_evapotranspiration_mm",
         "precipitation_mm",
@@ -85,6 +94,7 @@ def normalize_hourly_dataframe(data_df: pd.DataFrame, timezone_name: str) -> pd.
         "temperature_2m",
         "relative_humidity_2m",
         "soil_temperature_0_to_7cm",
+        "soil_moisture_0_to_7cm",
         "shortwave_radiation",
         "et0_fao_evapotranspiration_mm",
         "precipitation_mm",
