@@ -9,13 +9,11 @@
 \usepackage{pdfpages}
 \usepackage{titletoc}
 \usepackage{listings}
-\usepackage{framed} % Framing content
+\usepackage{framed}
 \usepackage{natbib}
-%\usepackage[sort&compress, numbers]{natbib}
 \usepackage{lineno, hyperref}
 \usepackage{graphicx}
 \usepackage{diagbox}
-\usepackage{float}
 \usepackage[english]{babel}
 \usepackage{amsmath}
 \usepackage{mathtools, cuted}
@@ -24,12 +22,12 @@
 \usepackage{lipsum}
 \usepackage{booktabs}
 \usepackage[abs]{overpic}
-\usepackage{framed} % Framing content
-\usepackage{multicol} % Multiple columns environment
+\usepackage{multicol}
 \usepackage{nomencl}
 \makenomenclature
 \usepackage{colortbl}
 \usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 \usepackage[font=large]{caption}
 \usepackage{subcaption}
 \usepackage{circuitikz}
@@ -39,132 +37,139 @@
 
 \hypersetup{
 	colorlinks=true,
-	citecolor=blue,	
+	citecolor=blue,
 	linkcolor=blue,
-	filecolor=magenta,      
+	filecolor=magenta,
 	urlcolor=cyan,
 }
 
 \renewcommand*\nompreamble{\begin{multicols}{2}}
-	\renewcommand*\nompostamble{\end{multicols}}
+\renewcommand*\nompostamble{\end{multicols}}
 
 \usepackage{color}
-\usepackage{listings}
 \definecolor{mygreen}{rgb}{0,0.6,0}
 \definecolor{mygray}{rgb}{0.5,0.5,0.5}
 \definecolor{mymauve}{rgb}{0.58,0,0.82}
 \definecolor{myorange}{rgb}{0.855,0.576,0.027}
 \lstset{
-	language=Octave,
-	frame=single,   
+	language=C++,
+	frame=single,
 	morecomment = [l][\itshape\color{blue}]{\%},
 	keywordstyle=\color{blue},
 	commentstyle=\color{mygreen},
-	breakatwhitespace=false,         
-	breaklines=true,  
+	breakatwhitespace=false,
+	breaklines=true,
 	numbers=left,
 	numbersep=5pt,
-	numberstyle=\tiny\color{mygray}, 
+	numberstyle=\tiny\color{mygray},
 	showstringspaces=false,
-	showtabs=false,                  
+	showtabs=false,
 	tabsize=2,
 	stringstyle=\color{myorange},
-	title=\lstname,
-	literate=
-	{+}{{{\color{red}+}}}1
-	{-}{{{\color{red}-}}}1
-	{*}{{{\color{red}*}}}1
-	{,}{{{\color{red},}}}1
-	{=}{{{\color{red}=}}}1
-	{)}{{{\color{red})}}}1
-	{(}{{{\color{red}(}}}1
-	{;}{{{\color{red};}}}1
-	{:}{{{\color{red}:}}}1
-	{[}{{{\color{red}[}}}1
-	{]}{{{\color{red}]}}}1
-	{>}{{{\color{red}>}}}1
+	title=\lstname
+}
+
+\newcommand{\evidencefigure}[5][0.88\textwidth]{%
+	\begin{figure}[H]
+		\centering
+		\IfFileExists{#2}{%
+			\includegraphics[width=#1]{#2}%
+		}{%
+			\fbox{%
+				\begin{minipage}[c][0.24\textheight][c]{0.82\textwidth}
+					\centering
+					\textbf{Image placeholder}\\[0.5em]
+					Add image file: \path{#2}\\[0.6em]
+					#3
+				\end{minipage}%
+			}%
+		}
+		\caption{#4}
+		\label{#5}
+	\end{figure}
 }
 
 \begin{document}
-	
+
 	\begin{titlepage}
 		\begin{center}
-			\vspace*{1cm}			
-			\includegraphics[width=0.4\textwidth]{uon-logo}\\		
+			\vspace*{1cm}
+			\includegraphics[width=0.4\textwidth]{uon-logo}\\
 			\Large
 			University of Nairobi\\
 			Faculty of Science and Technology\\
-			Department of Physics\\	
+			Department of Physics\\
 			\vspace{1cm}
-			
-			\textbf{TYPE your title here}	
-			\vspace{1cm}\\
-			by	
+
+			\textbf{Design and Implementation of an Edge-AI Weather-Based Smart Irrigation Control System Using ESP32 Microcontrollers}\\
 			\vspace{1cm}
-			
+			by
+			\vspace{1cm}
+
 			\textbf{Victor Stewart Ngunyi}\\
-			
-			\vfill			
+
+			\vfill
 			\textbf{I39/2920/2021}
-			\vfill	
-		\end{center}		
+			\vfill
+		\end{center}
 	A Project Report Submitted in Fulfillment of the Requirements for the award of the Degree of Bachelor of Science in Physics of the University of Nairobi\\
 		\centering
 		\Huge
 		\textbf{May, 2026}
 	\end{titlepage}
-	
+
 \setcounter{page}{1}
 \pagenumbering{roman}
 \chapter*{DECLARATION}
 \addcontentsline{toc}{chapter}{DECLARATION}
-I declare that this project is my original work and has not been submitted elsewhere for research. Where other people’s work has been used, this has properly been acknowledged and referenced in accordance with the University of Nairobi’s requirements. 
+I declare that this project is my original work and has not been submitted elsewhere for research. Where other people's work has been used, this has properly been acknowledged and referenced in accordance with the University of Nairobi's requirements.
 	\\
-	
-\noindent 	\textbf{Victor Stewart Ngunyi}\\
+
+\noindent \textbf{Victor Stewart Ngunyi}\\
 I39/2920/2021\\
 Department of Physics\\
 University of Nairobi\\
 victorstew5@students.uonbi.ac.ke\\
-	
-Signature ………………………………… Date………………	\\
-	
-	
+
+Signature ................................ Date................\\
+
+
 \noindent This project report is submitted for examination with our approval as research supervisors:
 	\\
-	
+
 	\noindent \textbf{Supervisor 1}\\
 	University of Nairobi \\
 	Department of Physics\\
 	P.O. Box 30197 - 00100,\\
 	Nairobi, Kenya\\
 	supervisor-email@uonbi.ac.ke\\
-	
-Signature ………………………………… Date………………
+
+Signature ................................ Date................
 	\\
-	
+
 \noindent \textbf{Supervisor 2}\\
 University of Nairobi \\
 Department of Physics\\
 P.O. Box 30197 - 00100,\\
 Nairobi, Kenya\\
 supervisor-email@uonbi.ac.ke\\
-	
-Signature ………………………………… Date………………
+
+Signature ................................ Date................
 	\doublespacing
-	
+
 \chapter*{ABSTRACT}
 \addcontentsline{toc}{chapter}{ABSTRACT}
-Write you abstract here
+Efficient irrigation requires knowledge of both present crop water demand and near-term rainfall conditions. Many low-cost automated irrigation systems rely on fixed thresholds or cloud-connected controllers, which may waste water when rainfall is imminent, fail where internet access is intermittent, or become difficult to scale across independent farm sections. This project designed and implemented a prototype edge-AI smart irrigation control system based on ESP32 microcontrollers, ESP-NOW peer-to-peer communication, and an embedded rainfall forecasting model. Historical hourly weather data for a representative central Kenya farm location at latitude -0.4201 and longitude 36.9476 were obtained from the Open-Meteo historical weather API for the period 1 January 2015 to 31 December 2025. The dataset contained 96,432 hourly records with temperature, relative humidity, soil temperature, shortwave radiation, FAO reference evapotranspiration and precipitation.
+
+Two rainfall amount models were developed in Python using TensorFlow: a lightweight multilayer perceptron using current weather features and a 1-D convolutional neural network using 24-hour feature sequences. The multilayer perceptron was selected for firmware deployment because it generated a compact 8 KB TensorFlow Lite model suitable for TensorFlow Lite Micro on the ESP32 master node. On the held-out chronological test set, the deployed model achieved a mean absolute error of 0.153 mm and a root mean square error of 0.515 mm for hourly rainfall amount prediction. A separate 1-D convolutional experiment achieved a lower root mean square error of 0.501 mm and a higher coefficient of determination, but required sequence input handling and was not integrated into the final firmware. The completed prototype uses sensor nodes to transmit weather observations, a section node to drive irrigation, pesticide and fertilizer actuators, and a master node to perform local inference and send control commands. Irrigation is inhibited when predicted rainfall exceeds 1.0 mm and is enabled under high evaporative demand conditions using reference evapotranspiration, solar radiation and humidity thresholds. The project demonstrates that a low-cost microcontroller network can combine meteorological sensing, local machine-learning inference and actuator control for weather-aware irrigation without continuous cloud dependence.
 
 \cleardoublepage
-\titlecontents{chapter}% <section-type>
-[0pt]% <left>
-{\bfseries}% <above-code>
-{\chaptername\ \thecontentslabel:\quad}% <numbered-entry-format>
-{}% <numberless-entry-format>
-{\hfill\contentspage}% <filler-page-format>
-%\singlespacing
+\titlecontents{chapter}
+[0pt]
+{\bfseries}
+{\chaptername\ \thecontentslabel:\quad}
+{}
+{\hfill\contentspage}
 \renewcommand{\contentsname}{TABLE OF CONTENTS}
 \tableofcontents
 \addcontentsline{toc}{chapter}{TABLE OF CONTENTS}
@@ -176,163 +181,556 @@ Write you abstract here
 \listoftables
 \addcontentsline{toc}{chapter}{LIST OF TABLES}
 \newpage
-	\renewcommand{\nomname}{LIST OF ABBREVIATIONS, ACRONYMS AND SYMBOLS}
-	\addcontentsline{toc}{chapter}{LIST OF ABBREVIATIONS, ACRONYMS AND SYMBOLS}
-	\mbox{}
-	\begin{table*}[!t]   
-		\nomenclature{$LIBS$}{Laser Induced Breakdown Spectroscopy}
-		\nomenclature{$LPE$}{Laser Pulse Energy}
-		\nomenclature{$SNR$}{Signal to Noise Ratio}
-		\nomenclature{$DP-LIBS$}{Double Pulse LIBS}
-		\nomenclature{$\alpha$}{Elevation/altitude angle}
-		\nomenclature{MVA}{Multivariate Analysis}
-		\nomenclature{$\theta$}{Zenith angle}
-		\nomenclature{$\beta$}{Tilt angle}
-		\nomenclature{$n$}{Diode ideality factor}
-		
-		\printnomenclature[1.5cm]
-		
-	\end{table*}
-	
-	\cleardoublepage
+\renewcommand{\nomname}{LIST OF ABBREVIATIONS, ACRONYMS AND SYMBOLS}
+\addcontentsline{toc}{chapter}{LIST OF ABBREVIATIONS, ACRONYMS AND SYMBOLS}
+\nomenclature{AI}{Artificial Intelligence}
+\nomenclature{API}{Application Programming Interface}
+\nomenclature{CNN}{Convolutional Neural Network}
+\nomenclature{ESP-NOW}{Espressif peer-to-peer wireless communication protocol}
+\nomenclature{ET$_0$}{Reference evapotranspiration}
+\nomenclature{FAO}{Food and Agriculture Organization of the United Nations}
+\nomenclature{GPIO}{General Purpose Input/Output}
+\nomenclature{IoT}{Internet of Things}
+\nomenclature{MAE}{Mean Absolute Error}
+\nomenclature{ML}{Machine Learning}
+\nomenclature{MLP}{Multilayer Perceptron}
+\nomenclature{RMSE}{Root Mean Square Error}
+\nomenclature{TFLite}{TensorFlow Lite}
+\nomenclature{TFLM}{TensorFlow Lite Micro}
+\nomenclature{WSN}{Wireless Sensor Network}
+\nomenclature{$P$}{Precipitation or rainfall amount}
+\nomenclature{$I$}{Irrigation amount}
+\nomenclature{$R^{2}$}{Coefficient of determination}
+\nomenclature{$x$}{Input feature vector}
+\nomenclature{$\hat{y}$}{Predicted rainfall amount}
+\printnomenclature[2.0cm]
+
+\cleardoublepage
 \chapter{Introduction}
 \setcounter{page}{1}
 \pagenumbering{arabic}
-\section{Research Background }
-The introduction gives a detailed background of the work the student has undertaken, including what is known. Background information might be historical in nature or it might refer to previous research. The background should convince the reader why the topic is important and why the approach used is relevant.
-The Introduction chapter tends to be relatively short and written in easy-to-read language. It is written for the general audience to gain an appreciation of what the research is about and why it should matter to them.
-The Introduction also captures a statement of the problem, the objectives and significance of the study. It is important to define the scope of the study.
-A good introduction should contain a number of references, some of which should be a few years old, thus showing that the candidate is conversant with the latest information regarding the topic investigated.
-It is advisable to structure the “Introduction” into sections and sub-sections which are logically sequenced to provide a document that flows for easy readability.
 
+\section{Research Background}
+Water is one of the most important limiting resources in crop production. Irrigation improves reliability of production where rainfall is seasonal, unevenly distributed or insufficient during sensitive crop growth stages, but inefficient scheduling can lead to water loss, energy waste, nutrient leaching and crop stress. Traditional irrigation practices often depend on fixed time schedules or visual judgement by the farmer. Such methods are simple, but they do not always respond to rapid changes in weather, soil conditions or the probability of rainfall.
+
+Reference evapotranspiration, ET$_0$, is a standard measure of atmospheric demand for water from a reference crop surface. The FAO Penman-Monteith method is widely used because it combines the effects of solar radiation, air temperature, humidity and wind into a physically meaningful estimate of evaporative demand \citep{allen1998crop}. In irrigation management, ET$_0$ helps estimate how much water has been lost from the crop-soil system, while rainfall information helps determine whether irrigation should be delayed or reduced. A practical irrigation controller therefore benefits from combining measured weather, evapotranspiration and short-term rainfall prediction.
+
+Recent advances in Internet of Things systems have made it possible to collect farm data using inexpensive sensors and microcontrollers. Reviews and platform studies of smart irrigation systems show that low-cost sensors, embedded control, wireless communication and automated decision logic can improve the timeliness of irrigation and reduce water waste when compared with conventional scheduling \citep{garcia2020iot,kamienski2019smart}. However, many systems depend on continuous internet connectivity, remote cloud analytics or manually configured thresholds. These requirements can be a weakness in rural or semi-rural farms where network coverage, power and maintenance capacity may be limited.
+
+This project addresses that challenge by implementing intelligence at the edge. The system uses ESP32 microcontrollers communicating through ESP-NOW, a connectionless peer-to-peer wireless protocol for Espressif devices \citep{espressif2026espnow}. A master ESP32 runs an embedded TensorFlow Lite Micro rainfall model, processes weather data received from field nodes and sends actuator commands to a section controller. TensorFlow Lite Micro is designed for running neural network inference on microcontrollers with restricted memory and processing resources \citep{david2021tensorflow}. This makes it appropriate for a smart irrigation prototype where decisions should continue even without a cloud server.
 
 \section{Statement of the Problem}
-The statement of the problem should be defined in a section in the introduction with its own heading to clearly articulate the nature or severity of the problem addressed in the research.
-"Statement of the Problem" is a description of a difficulty that has been solved or at least researched to see whether a solution was found.
-The ultimate goal of the statement of the problem is to transform a generalized problem (something that bothers you) into a targeted, well-defined problem that can be resolved through focused research and careful decision-making.
-\section{General Objectives} 
-Research objectives are the specific goals that a study sets out to realize by the time the research is completed. They form a very important part of the research and if not spelt out clearly and concisely, the research exercise may suffer many shortfalls. Therefore all the research objectives should be presented clearly in list form and should spell out all the goals the candidate intends to accomplish. 
-In the Objectives section of the Introduction, the candidates must indicate the overall objective (big goal-rarely achievable in the life time of the research), as a paragraph or a sentence of its own, then the specific objectives (smaller goals-usually achievable in the timeframe of the research) follow as an itemized list. The objectives must have action words, e.g., identify, develop, elucidate, assess, determine, simulate etc.
+Small and medium-scale irrigation systems often lack affordable local intelligence. Manual irrigation and timer-based automation do not account for immediate weather conditions or expected rainfall. As a result, irrigation may occur shortly before rainfall, wasting water and energy. Conversely, crops may remain unirrigated during periods of high evaporative demand when human supervision is delayed. Commercial smart controllers may solve some of these problems, but they can be costly, cloud-dependent or poorly adapted to multi-section farm layouts.
 
-The overall objective of this research is to .....
-\section{Specific Objective}
+The specific problem addressed in this project is the need for a low-cost, locally controlled irrigation system that can receive weather information from distributed sensor nodes, estimate near-term rainfall using an embedded machine-learning model and issue section-level actuator commands without requiring continuous internet connectivity.
+
+\section{General Objective}
+The overall objective of this project was to design and implement an ESP32-based edge-AI smart irrigation control system that uses local weather information and embedded rainfall forecasting to automate irrigation decisions.
+
+\section{Specific Objectives}
 \begin{enumerate}[label=(\roman*)]
-	\item To model and simulate ....  
-	\item To analyze .....
-	\item To distinguish ...
+	\item To obtain and preprocess historical hourly weather data suitable for rainfall forecasting and irrigation decision support.
+	\item To develop and evaluate lightweight machine-learning models for hourly rainfall amount prediction.
+	\item To convert the selected model to a TensorFlow Lite Micro-compatible format for deployment on an ESP32 microcontroller.
+	\item To design firmware for sensor, section and master ESP32 nodes communicating through ESP-NOW.
+	\item To implement a control algorithm that combines predicted rainfall, ET$_0$, shortwave radiation and relative humidity to decide when irrigation should be activated.
+	\item To evaluate the performance, limitations and future improvement areas of the developed prototype.
 \end{enumerate}
 
-\section {Justification and Significance of the Study} 
-This section of the Introduction follows after the Objectives section.
-Justification (rationale) deals with reasons that make the problem to be investigated a concern to a scientific community or society in general. It could be that the problem has not been properly or adequately investigated by previous researchers and therefore requires to be revisited with a view to correcting any misconceptions or filling any missing gaps in the knowledge about the problem. Misconceptions may be related to conclusions arrived at by previous workers or methodologies adopted in carrying out previous investigations. All these need to be corrected. A gap in knowledge about the problem may exist whereby previous researchers either missed proper equipment or techniques to investigate certain vital aspects of the problem and therefore vital information e.g. date of a rock type, is missing. Filling such a gap indeed will form part of the justification for carrying the investigation and should be stated.
-\section{Significance of the Study}
-Significance (importance) is mainly concerned with reasons why the candidate thinks the outcome of the research would be useful to science, society or community in which the research will be conducted. One among such reasons may be that the results will contribute extra knowledge in the subject area of research and either spur future research, serve as a framework for policy formulation or basis for implementing development.
+\section{Justification and Significance of the Study}
+Agricultural water management requires systems that are not only technically accurate, but also affordable and robust under field conditions. A locally controlled ESP32 system is significant because ESP32 boards are inexpensive, widely available and capable of both wireless communication and embedded computation. By using ESP-NOW, the controller can exchange data among farm nodes without relying on a router or cellular data link. By using TensorFlow Lite Micro, the rainfall model can run directly on the master node.
 
+The project contributes to the growing field of precision irrigation by demonstrating a practical integration of weather-based crop water demand, machine-learning rainfall prediction and microcontroller actuation. The work is also relevant to physics because it uses physical environmental variables such as radiation, humidity, temperature and evapotranspiration, and applies modelling, signal processing and embedded instrumentation principles to a real agricultural problem.
 
-\chapter {Literature Review}
-The role of the literature review is to bring out, in a systematic way, the extent to which the problem has been solved by other researchers or show what is already known about the research topic as a whole. It also outlines the key ideas and theories that help to understand this and clearly establish where the knowledge gaps are in the intended area of research.
-As well as being systematic, the review should be evaluative and critical of the studies or ideas which are relevant to the research. For example, you may think a particular study did not investigate some important aspect of the area you are to research, that the authors failed to notice a weakness in their methods, or that their conclusion is not well-supported.\citep{kombo2006proposal}
-Although, the literature review is usually written for the expert reader in the discipline, all the terminologies that need to be explained should be addressed in sufficient detail in the literature review.
-It is important that the literature review be exhaustive (contain detailed reference citations), up-to-date (contain references that are a few years old) and cover a wide survey of the knowledge accumulated in the subject area by previous researchers up to the time the candidate is writing the report.
-It is advisable to structure the “Literature Review” into sections which are logically sequenced to provide the reader with a clear understanding of the research area and its knowledge gaps
+\section{Scope of the Study}
+The project focused on a prototype system for section-level irrigation control. The software and firmware were developed for three ESP32 roles: sensor node, section node and master node. Historical weather data from Open-Meteo were used for model training and testing. The deployed rainfall model predicts hourly rainfall amount from current weather variables; it does not yet use live soil moisture sensors, crop coefficients for a specific crop, wind speed, measured flow rate or feedback from an actual field water balance experiment. The actuator outputs include irrigation, pesticide and fertilizer channels, but the main analysis of this report focuses on irrigation control.
 
-\section*{Citation Placement in Literature review}
-The citation statement can be appropriately placed at the beginning, middle or at end of sentences as you continuously synthesize your work. The following are examples of citations statement indicating when the citations 
-are either at the beginning, middle or end of the sentence. 
-\subsection*{Beginning of Sentence}
-\cite{parker2009challenge} reported that empirical research verified compliance. 
-\subsection*{Middle of Sentence} 
-After looking into the issue, \cite{ndegwa2020fast} stated that the findings were not valid. 
-\subsection*{End of sentence} 
-The report concluded were victims of cyber terrorism \citep{jangada2022explorative}.
+\chapter{Literature Review}
 
-It is important to note that where the citation is placed within the text depends on whether you want the author to be 
-prominent or the idea to be prominent.
-Information prominent (the author(s) name is within parentheses) and mainly at the end or 
-middle: E.G. The conclusion reached in a recent study (Jones \& Wallace, 2007) was that… 
-Author prominent (the author(s) name is outside the parentheses) and mainly at the beginning of 
-the sentence or middle: 
-E.g. Jones and Wallace (2007) concluded that… 
-Note that “and” is replaced by the ampersand sign (“\&”) when the author(s) 
-and Year are both in brackets, e.g. (Jones \& Wallace, 2012).
-3fdm printer  was recently developed by \cite{hoque2019design}
-You can divide your literure review into subtopics to review different topics related to your research.
+\section{Smart Irrigation and Precision Agriculture}
+Smart irrigation systems use sensors, controllers, communication networks and decision algorithms to apply water when and where it is needed. In recent literature, common measurements include soil moisture, temperature, humidity, radiation, water level and weather forecasts \citep{garcia2020iot}. These systems may be classified as soil-moisture based, weather-based, plant-stress based or hybrid. Soil-moisture systems respond directly to root-zone water availability, while weather-based systems estimate demand using evapotranspiration and rainfall.
 
-\section{Write Subtopic I here}
+The main advantage of smart irrigation is improved water use efficiency. A controller can avoid unnecessary irrigation after rainfall, irrigate during suitable times of day and apply water according to section-specific conditions. The SWAMP precision irrigation platform, for example, shows how sensing, communications, data management and decision algorithms can be integrated for farm water management while still facing deployment and scalability constraints \citep{kamienski2019smart}. However, the same literature also highlights recurring limitations: power management, communication reliability, system cost, sensor calibration and lack of locally adapted decision models.
 
-\section{Write Subtopic II here}
+\section{Weather-Based Irrigation Scheduling}
+Weather-based irrigation scheduling relies on the relationship between atmospheric conditions and crop water loss. Solar radiation provides the energy for evaporation, temperature affects saturation vapour pressure, humidity controls vapour pressure deficit and wind influences transport of water vapour away from the crop surface. The FAO Penman-Monteith framework combines these variables into ET$_0$, which can be multiplied by a crop coefficient to estimate crop evapotranspiration \citep{allen1998crop}. In a simplified prototype, ET$_0$ can be used as an indicator of evaporative pressure even when crop-specific coefficients are not available.
 
-\section{Write subtopic III here}
+Rainfall is equally important. If rainfall is expected, irrigation can be postponed to avoid overwatering. Historical gridded and reanalysis weather products have become useful for model development where local station records are unavailable. ERA5 reanalysis provides long-term, physically consistent weather fields \citep{hersbach2020era5}, and Open-Meteo exposes historical weather variables through a public API suitable for application development \citep{openmeteo2026historical}. In this project, Open-Meteo was used to assemble local hourly data for training and testing rainfall models.
 
+\section{Machine Learning for Rainfall Forecasting}
+Rainfall forecasting is difficult because rainfall is intermittent, nonlinear and often highly localized. Traditional statistical models can capture seasonal or autoregressive patterns, while machine-learning models can learn nonlinear relationships among meteorological variables. Neural networks are commonly used because they can approximate complex input-output mappings when adequate data are available \citep{goodfellow2016deep}. In agriculture, machine learning has been applied to crop prediction, irrigation scheduling, soil moisture estimation and climate-based decision support \citep{liakos2018machine}.
+
+For an embedded irrigation controller, model accuracy must be balanced against memory, computation and simplicity. A dense neural network using current weather variables is easier to deploy than a sequence model because it requires only one feature vector at inference time. A convolutional neural network can capture temporal patterns over previous hours \citep{lecun1998gradient}, but it requires buffering and preprocessing a fixed-length sequence. This project therefore evaluated both a lightweight MLP and a 24-hour 1-D CNN, then selected the MLP for final firmware integration.
+
+\section{Edge AI and Microcontroller Deployment}
+Edge AI refers to running machine-learning inference on local devices rather than sending all data to a remote server. This reduces latency, internet dependency and data transfer requirements. TensorFlow Lite Micro supports neural network inference on microcontrollers by using a small runtime, a static tensor arena and operators selected at compile time \citep{david2021tensorflow}. These design features are important for ESP32-based prototypes where memory is measured in kilobytes rather than gigabytes.
+
+Deploying a model on a microcontroller involves more than training accuracy. The model must be converted to a compact inference format, embedded in firmware, supplied with the same feature scaling used during training and tested against memory limits. In this project, the selected rainfall model was exported as a TensorFlow Lite file and converted into C/C++ arrays included by the master ESP32 firmware.
+
+\section{Wireless Communication for Farm Nodes}
+Farm nodes require low-cost communication between sensors and controllers. Wi-Fi, LoRa, Zigbee, Bluetooth Low Energy and ESP-NOW are common options. ESP-NOW is useful for small ESP32 networks because it supports direct peer-to-peer communication using MAC addresses and does not require a wireless router \citep{espressif2026espnow}. It is therefore suitable for a prototype where sensor nodes, section nodes and a master controller exchange short structured packets.
+
+The limitation of ESP-NOW is that network management, peer registration, packet acknowledgement and security must be carefully handled in firmware. Unlike a full IP network, application-level packet formats and routing logic must be designed by the developer. This project implemented a shared packet structure with message types for weather data, control commands, status and acknowledgements.
+
+\section{Identified Knowledge Gap}
+The literature shows many examples of smart irrigation, but there remains a practical gap between cloud-based intelligent systems and simple local timer systems. Farmers need systems that are affordable, section-aware, weather-aware and able to operate locally. This project responds to that gap by combining ESP-NOW communication, embedded rainfall inference and ET$_0$-based decision logic in a working prototype architecture.
 
 \chapter{Theory}
-This chapter is optional and can be included in very exceptional cases in Physics in those studies where the theory underlying the methods to be employed in a study is not widely established. The candidate may expound on the theory in justifying the choice of methods used in the study. See example below.
-\section{Put Theory I subtopic here}
+
+\section{Crop Water Balance}
+Irrigation scheduling can be described using a simplified root-zone water balance. If $D_t$ is the soil water deficit at time $t$, the deficit can be approximated by
 \begin{equation}
-	\label{eq:1}
-	F=ma
+	D_t = D_{t-1} + ET_c - P_e - I,
+	\label{eq:water_balance}
+\end{equation}
+where $ET_c$ is crop evapotranspiration, $P_e$ is effective rainfall and $I$ is irrigation. When evapotranspiration is high and rainfall is low, the deficit increases and irrigation may be required. When rainfall is expected, irrigation may be delayed because rainfall contributes to reducing the deficit.
+
+Crop evapotranspiration is commonly estimated as
+\begin{equation}
+	ET_c = K_c ET_0,
+	\label{eq:etc}
+\end{equation}
+where $K_c$ is a crop coefficient and $ET_0$ is reference evapotranspiration. This project did not implement crop-specific $K_c$ values; instead, ET$_0$ was used directly as a practical indicator of atmospheric water demand.
+
+\section{\texorpdfstring{FAO Penman-Monteith ET$_0$}{FAO Penman-Monteith ET0}}
+The FAO-56 Penman-Monteith equation estimates daily reference evapotranspiration as \citep{allen1998crop}
+\begin{equation}
+	ET_0 =
+	\frac{0.408\Delta(R_n-G)+\gamma\frac{900}{T+273}u_2(e_s-e_a)}
+	{\Delta+\gamma(1+0.34u_2)},
+	\label{eq:penman}
+\end{equation}
+where $R_n$ is net radiation, $G$ is soil heat flux density, $T$ is mean air temperature, $u_2$ is wind speed at 2 m height, $e_s-e_a$ is vapour pressure deficit, $\Delta$ is the slope of the saturation vapour pressure curve and $\gamma$ is the psychrometric constant. The Open-Meteo dataset used in this project supplied hourly FAO ET$_0$, allowing the controller to use evapotranspiration without calculating all intermediate meteorological terms in the firmware.
+
+\section{Rainfall Prediction Model}
+The deployed rainfall model predicts hourly rainfall amount from a feature vector
+\begin{equation}
+	x = [T,\ RH,\ T_s,\ R_s,\ ET_0],
+\end{equation}
+where $T$ is air temperature, $RH$ is relative humidity, $T_s$ is soil temperature, $R_s$ is shortwave radiation and $ET_0$ is reference evapotranspiration. The features are standardized using training-set statistics:
+\begin{equation}
+	x'_i = \frac{x_i-\mu_i}{\sigma_i}.
+	\label{eq:standardization}
 \end{equation}
 
+Because rainfall amount is non-negative and skewed, the training target was transformed using
 \begin{equation}
-	\label{eq:2}
-	\Sigma F=m\ddot{\textbf{r}}
+	y' = \frac{\ln(1+y)-\mu_y}{\sigma_y}.
+	\label{eq:target_transform}
+\end{equation}
+After inference, the firmware reverses the transform using
+\begin{equation}
+	\hat{y} = \exp(\hat{y}'\sigma_y+\mu_y)-1.
+	\label{eq:inverse_transform}
 \end{equation}
 
-\section{Put Theory II  subtopic here}
+The MLP used in this project can be represented as
 \begin{equation}
-	\label{eq:3}
-	\ddot{\textbf{r}}=-\frac{\mu}{r^{2}}\textbf{r}
+	h_1 = f(W_1x'+b_1),
 \end{equation}
+\begin{equation}
+	h_2 = f(W_2h_1+b_2),
+\end{equation}
+\begin{equation}
+	\hat{y}' = W_3h_2+b_3,
+\end{equation}
+where $f$ is the rectified linear unit activation function. The model was trained by minimizing mean squared error on the transformed rainfall target.
 
-\chapter{Methodology or Materials and Methods}
-The methods should be clear and detailed enough for another experienced person to follow and reproduce the outcomes.
-All the data, materials and their sources, instruments and software that have been used by the candidate should be included in this chapter. In case of a field study, detailed maps of the study area and the sampling points should be specified. Circuits and diagrams developed or used in the studies should be inserted and described in this section. All algorithms should be cleared discussed using the flowchart
+\section{Model Evaluation Metrics}
+Three metrics were used to evaluate rainfall amount prediction. Mean absolute error is
+\begin{equation}
+	MAE = \frac{1}{n}\sum_{i=1}^{n}|y_i-\hat{y}_i|.
+\end{equation}
+Root mean square error is
+\begin{equation}
+	RMSE = \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat{y}_i)^2}.
+\end{equation}
+The coefficient of determination is
+\begin{equation}
+	R^2 = 1-\frac{\sum_{i=1}^{n}(y_i-\hat{y}_i)^2}{\sum_{i=1}^{n}(y_i-\bar{y})^2}.
+\end{equation}
+MAE is easier to interpret in millimetres, RMSE penalizes larger errors more strongly and $R^2$ indicates how much variance is explained relative to a mean baseline.
 
-\section{Study Area and Materials}
-In case of a field study, detailed maps of the study area and the sampling points should be specified. Where maps are included, they should be legible and the direction NORTH must be shown, a key to symbols on the map and the scale (e.g. 1: 10,000 km) must also be indicated
+\section{Control Logic}
+The irrigation decision in the firmware is a hybrid of machine-learning prediction and rule-based physics intuition. Irrigation is blocked if predicted rainfall exceeds a rainfall threshold. If rain is not expected, irrigation is enabled when evaporative demand and radiation are high and humidity is sufficiently low. The implemented decision can be summarized as:
+\begin{equation}
+	\text{irrigate} =
+	(\hat{P} < 1.0)\land(ET_0 \geq 0.20)\land(R_s \geq 300)\land(RH \leq 70).
+\end{equation}
+When irrigation is enabled, the duration is scaled from 60 s to 300 s according to ET$_0$ between 0.20 mm and 0.60 mm. This approach is simple enough for a prototype while still linking control to predicted rainfall and atmospheric water demand.
 
-\section{Research design}
+\chapter{Methodology}
 
-\section{Experimental techniques}
+\section{Study Area and Data Source}
+The model development used a representative farm location in central Kenya with coordinates latitude -0.4201 and longitude 36.9476. Historical hourly weather records were downloaded from the Open-Meteo historical weather API, which provides historical weather variables derived from reanalysis and weather model datasets \citep{openmeteo2026historical}. The period covered was 1 January 2015 to 31 December 2025 in the Africa/Nairobi timezone.
 
-\section{Data analysis and presentation}
+The downloaded variables were air temperature at 2 m, relative humidity at 2 m, soil temperature from 0 to 7 cm, shortwave radiation, FAO ET$_0$ evapotranspiration and precipitation. These variables were selected because they are physically connected to evaporation, rainfall formation and irrigation need.
+
+\section{Research Design}
+The project followed a design-build-test approach. First, historical weather data were collected and normalized. Second, rainfall forecasting models were trained and evaluated. Third, the selected model was converted into a TensorFlow Lite format and exported into firmware source files. Fourth, ESP32 firmware was implemented for the sensor, section and master nodes. Finally, the complete system logic was evaluated using model metrics, firmware structure and prototype behaviour.
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}[
+		node distance=2.5cm,
+		box/.style={rectangle, draw, rounded corners, align=center, minimum height=1.0cm, minimum width=3.4cm},
+		arrow/.style={-{Latex[length=3mm]}, thick}
+	]
+		\node[box] (data) {Open-Meteo\\hourly weather data};
+		\node[box, right=of data] (train) {Python preprocessing\\and model training};
+		\node[box, right=of train] (export) {TFLite conversion\\and C array export};
+		\node[box, below=of export] (master) {Master ESP32\\TFLM inference};
+		\node[box, left=of master] (section) {Section ESP32\\actuator control};
+		\node[box, left=of section] (sensor) {Sensor ESP32\\weather packet source};
+
+		\draw[arrow] (data) -- (train);
+		\draw[arrow] (train) -- (export);
+		\draw[arrow] (export) -- (master);
+		\draw[arrow] (sensor) -- node[above]{ESP-NOW} (section);
+		\draw[arrow] (section) -- node[above]{ESP-NOW} (master);
+		\draw[arrow] (master) -- node[below]{control cmd} (section);
+	\end{tikzpicture}
+	\caption{Overall workflow from weather data acquisition to embedded irrigation control.}
+	\label{fig:workflow}
+\end{figure}
+
+\section{Hardware and Software Materials}
+The main hardware platform was the ESP32 microcontroller. Three firmware roles were implemented:
+\begin{enumerate}[label=(\roman*)]
+	\item A sensor node that sends weather packets and heartbeat/status packets.
+	\item A section node that receives weather data from sensor nodes, forwards them to the master and drives actuator pins.
+	\item A master node that receives weather information, runs rainfall inference and sends irrigation commands.
+\end{enumerate}
+
+The section node firmware defines GPIO outputs for a valve, pesticide sprayer and fertilizer actuator. In the prototype code these are assigned to pins 25, 26 and 27 respectively. The software tools used were Python, pandas, NumPy, scikit-learn, TensorFlow, TensorFlow Lite, Arduino-style ESP32 firmware and TensorFlow Lite Micro.
+
+\evidencefigure{images/esp32_prototype_overview.jpg}
+{Recommended evidence: a clear photograph of the assembled prototype showing the ESP32 boards, jumper connections, breadboard or carrier board, power supply and actuator interface.}
+{Assembled ESP32 prototype used for the smart irrigation control system. The photograph should show the master, section and sensor-node hardware or a representative subset of the nodes used during testing.}
+{fig:esp32_prototype_overview}
+
+\evidencefigure{images/actuator_valve_setup.jpg}
+{Recommended evidence: a close-up photograph of the section-node actuator side, including relay module or driver circuit, valve connection and the GPIO wiring for irrigation, pesticide and fertilizer outputs.}
+{Section-node actuator interface for farm control. The valve, spray and fertilizer outputs are controlled by GPIO pins on the ESP32 section node, allowing the master node to translate weather-aware decisions into physical action.}
+{fig:actuator_valve_setup}
+
+\section{Field Sensor Inputs for Model Features}
+The deployed rainfall model expects five weather inputs: air temperature, relative humidity, near-surface soil temperature, shortwave radiation and ET$_0$. In the prototype dataset these values came from Open-Meteo, but the same input vector can be produced from a field sensor node after calibration. The sensor node would sample local instruments, convert raw readings into physical units and transmit the resulting feature vector to the section node and master node through ESP-NOW.
+
+An AHT10 temperature and humidity sensor can provide the air temperature and relative humidity terms used by the model. The sensor should be placed in a shaded, ventilated enclosure so that direct solar heating does not bias the temperature reading. These two measurements are important because temperature and humidity influence evaporation, vapour pressure deficit and rainfall likelihood. The AHT10 output can therefore replace the corresponding Open-Meteo columns during field operation, provided the firmware uses the same units as the training dataset.
+
+Soil sensors can extend the weather-based input set in two ways. A soil temperature probe placed near the surface can provide the \texttt{soil\_temperature\_0\_to\_7cm} feature used by the current model. A resistive or capacitive soil moisture sensor can provide a root-zone water-status signal. Soil moisture was not included in the deployed five-feature model, but it is highly useful for future feature engineering and control feedback because it measures whether the crop actually needs water. After calibration against dry and saturated soil conditions, the soil moisture reading could be added as a new model feature, used to override irrigation when soil is already wet, or used to label field data for retraining.
+
+Solar panels can support the system in two roles. First, they can power remote ESP32 sensor nodes through a charge controller and battery, allowing the field network to operate where mains power is unavailable. Second, the panel voltage, current or power output can act as a calibrated proxy for incoming solar radiation. This proxy should be treated carefully because a photovoltaic panel is not a pyranometer; panel temperature, angle, shading and battery charge state can affect the reading. For the prototype model, calibrated panel output or a dedicated light/irradiance sensor can be used to estimate the \texttt{shortwave\_radiation} feature, which then contributes to ET$_0$ estimation and irrigation-demand decisions.
+
+\begin{table}[H]
+	\centering
+	\caption{Possible field sensors for generating model inputs.}
+	\label{tab:field_sensor_inputs}
+	\begin{tabular}{p{0.22\textwidth}p{0.26\textwidth}p{0.42\textwidth}}
+		\toprule
+		Model input & Possible field source & Notes for use\\
+		\midrule
+		Air temperature & AHT10 & Mount in a shaded ventilated enclosure\\
+		Relative humidity & AHT10 & Use percent relative humidity as in training data\\
+		Soil temperature & Soil temperature probe & Place near 0--7 cm depth to match dataset feature\\
+		Shortwave radiation & Calibrated solar panel or light sensor & Convert proxy reading to W m$^{-2}$ if possible\\
+		ET$_0$ & Firmware estimate or external weather source & Compute from temperature, humidity and radiation, or receive from API\\
+		Soil moisture & Capacitive or resistive soil sensor & Future feature and irrigation feedback variable\\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\section{Weather Data Processing}
+The data acquisition script downloaded hourly historical data and saved it as \path{historical_weather_data_hourly.csv}. The preprocessing steps were:
+\begin{enumerate}[label=(\roman*)]
+	\item Convert timestamps to local time.
+	\item Rename precipitation and evapotranspiration fields to consistent names.
+	\item Clip negative precipitation values to zero.
+	\item Drop records with missing input or target variables.
+	\item Sort records chronologically.
+\end{enumerate}
+
+The final dataset contained 96,432 hourly records. The chronological split used 80\% of the data for training and 20\% for testing. Chronological splitting was selected to avoid training on future records when evaluating past predictions.
+
+\begin{table}[H]
+	\centering
+	\caption{Summary statistics of the historical hourly dataset.}
+	\label{tab:dataset_stats}
+	\begin{tabular}{lrrrr}
+		\toprule
+		Variable & Mean & Minimum & Maximum & Standard deviation\\
+		\midrule
+		Air temperature (deg C) & 16.853 & 7.100 & 29.400 & 3.495\\
+		Relative humidity (\%) & 77.778 & 16.000 & 100.000 & 16.320\\
+		Soil temperature 0--7 cm (deg C) & 18.356 & 9.200 & 31.700 & 3.280\\
+		Shortwave radiation (W m$^{-2}$) & 236.356 & 0.000 & 1143.000 & 315.409\\
+		ET$_0$ (mm h$^{-1}$) & 0.156 & 0.000 & 0.830 & 0.207\\
+		Precipitation (mm h$^{-1}$) & 0.167 & 0.000 & 17.200 & 0.600\\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\evidencefigure{images/notebook_feature_correlation_heatmap.png}
+{Recommended graph: export the ``Feature Correlation Heatmap'' from the rainfall forecasting notebook.}
+{Feature correlation heatmap for the selected weather variables and precipitation. The heatmap is important for feature engineering because it shows which variables are physically related, which variables may carry overlapping information and how weak direct linear correlation with rainfall motivates the use of a nonlinear neural network instead of a simple linear rule.}
+{fig:notebook_feature_correlation_heatmap}
+
+The correlation heatmap should be used to discuss both relationships and limitations. Temperature, radiation and ET$_0$ are expected to move together because radiation and temperature increase evaporative demand. Humidity often moves in the opposite direction during hot, dry periods. Rainfall may show only weak linear correlation with any single input, which supports using the combined feature vector rather than relying on one threshold.
+
+\evidencefigure{images/notebook_feature_pairplot.png}
+{Recommended graph: export the sampled ``Pairplot of Sensor Variables and Precipitation'' from the notebook.}
+{Pairplot of selected sensor variables and precipitation. This graph supports feature engineering by showing distributions, outliers, nonlinear relationships and the strong skew in precipitation values. It also helps confirm whether scaling, clipping and target transformation are needed before training.}
+{fig:notebook_feature_pairplot}
+
+\evidencefigure{images/notebook_chronological_split_log_target.png}
+{Recommended graph: export the notebook figure containing ``Chronological Split On Rainfall Timeline'' and ``Why Log-Scale The Precipitation Target''.}
+{Chronological train-test split and rainfall target transformation. The timeline verifies that the model was evaluated on later unseen records, while the raw and log-scaled target histograms show why \texttt{log1p} was applied to reduce skew and make optimization less dominated by rare heavy-rainfall hours.}
+{fig:notebook_chronological_split_log_target}
+
+\section{Rainfall Model Development}
+Two TensorFlow models were trained. The first was an MLP with two hidden layers of 32 and 16 neurons. The second was a 1-D CNN using 24-hour sequences. Both models used the same five weather features and the same log-transformed rainfall target. Early stopping monitored validation loss with patience of five epochs, and training was limited to 40 epochs with a batch size of 256.
+
+The MLP was selected for deployment because it only requires the latest feature vector. The CNN was retained as an experimental comparison because it tests the value of short history. The model training scripts also exported the feature mean, feature standard deviation, rainfall target mean and rainfall target standard deviation. These constants were written into the master firmware preprocessing header to ensure that the ESP32 used the same scaling as Python training.
+
+\section{Embedded Model Export}
+After training, the selected Keras model was converted to TensorFlow Lite. The TensorFlow Lite file was then converted into a C/C++ byte array included in the ESP32 master firmware. The generated files were:
+\begin{itemize}
+	\item \texttt{hourly\_rainfall\_forecaster.cpp}
+	\item \texttt{hourly\_rainfall\_forecaster.h}
+	\item \texttt{hourly\_rainfall\_preprocessing.h}
+\end{itemize}
+
+The master firmware creates a TensorFlow Lite Micro interpreter, registers the fully connected operator, allocates a 48 KB tensor arena and checks the input shape before enabling inference. The input tensor receives standardized weather features, and the output tensor is converted back to rainfall in millimetres using the inverse log transform.
+
+\section{ESP-NOW Communication Design}
+All firmware roles use a shared packet structure containing source MAC address, destination MAC address, section ID, node ID, sequence number, message type and a union payload. The message types are weather data, control command, status and acknowledgement. This structure keeps packets small and deterministic.
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}[
+		node distance=2.8cm,
+		box/.style={rectangle, draw, align=center, minimum width=3.3cm, minimum height=1.1cm},
+		arrow/.style={-{Latex[length=3mm]}, thick}
+	]
+		\node[box] (s1) {Sensor node\\weather sample};
+		\node[box, right=of s1] (sec) {Section node\\forwarder and actuators};
+		\node[box, right=of sec] (master) {Master node\\AI decision engine};
+		\node[box, below=of sec] (act) {Valve, spray and\\fertilizer outputs};
+
+		\draw[arrow] (s1) -- node[above]{weather/status} (sec);
+		\draw[arrow] (sec) -- node[above]{weather/status} (master);
+		\draw[arrow] (master) -- node[below]{control} (sec);
+		\draw[arrow] (sec) -- (act);
+	\end{tikzpicture}
+	\caption{Three-role ESP32 network architecture implemented in the prototype.}
+	\label{fig:architecture}
+\end{figure}
+
+Figure \ref{fig:farm_deployment} shows how the same prototype architecture can be deployed on a farm. The master node may be placed in a protected central location, while section nodes are installed near valves or actuator boxes. Sensor nodes are distributed across the farm sections so that each section can report local weather or soil conditions. This arrangement keeps the control decision local and allows the system to expand by adding more sensor or section nodes.
+
+\begin{figure}[H]
+	\centering
+	\begin{tikzpicture}[
+		scale=1,
+		every node/.style={font=\small},
+		field/.style={rectangle, draw, minimum width=5.5cm, minimum height=4.0cm, align=center},
+		device/.style={rectangle, draw, rounded corners, fill=white, align=center, minimum width=2.2cm, minimum height=0.8cm},
+		pipe/.style={thick},
+		wireless/.style={-{Latex[length=2.5mm]}, thick, dashed}
+	]
+		\node[field, fill=green!8] (plot1) at (0,0) {Farm section 1};
+		\node[field, fill=green!8] (plot2) at (5.8,0) {Farm section 2};
+		\node[field, fill=green!8] (plot3) at (0,-4.4) {Farm section 3};
+		\node[field, fill=green!8] (plot4) at (5.8,-4.4) {Farm section 4};
+
+		\node[device] (master) at (3.0,3.5) {Master ESP32\\AI controller};
+		\node[device] (tank) at (-3.5,3.5) {Water tank\\and pump};
+		\node[device] (sec1) at (0,0.85) {Section node};
+		\node[device] (sec2) at (5.8,0.85) {Section node};
+		\node[device] (sec3) at (0,-3.5) {Section node};
+		\node[device] (sec4) at (5.8,-3.5) {Section node};
+
+		\node[device] (sen1) at (0,-0.75) {Sensor node};
+		\node[device] (sen2) at (5.8,-0.75) {Sensor node};
+		\node[device] (sen3) at (0,-5.3) {Sensor node};
+		\node[device] (sen4) at (5.8,-5.3) {Sensor node};
+
+		\draw[pipe] (tank) -- (-3.5,0.85) -- (sec1);
+		\draw[pipe] (sec1) -- (sec2);
+		\draw[pipe] (-3.5,0.85) -- (-3.5,-3.5) -- (sec3);
+		\draw[pipe] (sec3) -- (sec4);
+
+		\draw[wireless] (sen1) -- (sec1);
+		\draw[wireless] (sen2) -- (sec2);
+		\draw[wireless] (sen3) -- (sec3);
+		\draw[wireless] (sen4) -- (sec4);
+		\draw[wireless] (sec1) -- (master);
+		\draw[wireless] (sec2) -- (master);
+		\draw[wireless] (sec3) -- (master);
+		\draw[wireless] (sec4) -- (master);
+
+		\node[align=left] at (9.0,3.5) {Dashed links: ESP-NOW\\Solid lines: water line};
+	\end{tikzpicture}
+	\caption{Recommended farm deployment layout for the smart irrigation system. Sensor nodes collect local field conditions, section nodes control valves and actuators, and the master node performs rainfall inference before sending section-specific control commands.}
+	\label{fig:farm_deployment}
+\end{figure}
+
+\section{Control Algorithm}
+The master node runs a control cycle every 30 s. During each cycle it checks stored weather data for active sensor nodes, runs the rainfall model and sends a control packet to the relevant section node. The implemented thresholds are shown in Table \ref{tab:thresholds}.
+
+\begin{table}[H]
+	\centering
+	\caption{Irrigation decision thresholds implemented in the master firmware.}
+	\label{tab:thresholds}
+	\begin{tabular}{ll}
+		\toprule
+		Parameter & Implemented value\\
+		\midrule
+		Rainfall block threshold & Predicted rainfall $\geq$ 1.00 mm\\
+		Minimum ET$_0$ for irrigation & 0.20 mm h$^{-1}$\\
+		Minimum shortwave radiation & 300 W m$^{-2}$\\
+		Maximum relative humidity & 70\%\\
+		Minimum irrigation duration & 60 s\\
+		Maximum irrigation duration & 300 s\\
+		Control interval & 30 s\\
+		\bottomrule
+	\end{tabular}
+\end{table}
 
 \chapter{Results, Discussion, Conclusion and Recommendations}
-The results and outcome of the study should be clearly stated in this section. All graphs, important tables should be presented in this section
 
-\section{Write Results Subtopic I here}
+\section{Dataset Results}
+The historical weather dataset covered eleven complete years from 2015 to 2025 and contained 96,432 hourly records. Rainfall was sparse and skewed: 34.27\% of the hours had precipitation of at least 0.1 mm, while only 3.88\% of hours had precipitation of at least 1.0 mm. This imbalance is typical of rainfall prediction and explains why simple accuracy is not a useful metric for rainfall amount modelling.
 
-\section{Write Results Subtopic II here}
+The dataset also showed strong seasonal rainfall variation. The wettest accumulated months in the 2015--2025 dataset were April, May, October and November, while the lowest accumulated rainfall occurred around July, August and September. This seasonal structure supports the use of meteorological features and historical data for rainfall-aware irrigation decisions.
 
-\section{Write Results subtopic III here}
+\begin{table}[H]
+	\centering
+	\caption{Annual precipitation totals in the processed dataset.}
+	\label{tab:annual_precip}
+	\begin{tabular}{lr@{\hspace{1cm}}lr}
+		\toprule
+		Year & Total rainfall (mm) & Year & Total rainfall (mm)\\
+		\midrule
+		2015 & 1732.4 & 2021 & 1463.4\\
+		2016 & 1276.0 & 2022 & 912.1\\
+		2017 & 1168.0 & 2023 & 1049.6\\
+		2018 & 1773.7 & 2024 & 1134.8\\
+		2019 & 2458.8 & 2025 & 1165.8\\
+		2020 & 1929.0 & &\\
+		\bottomrule
+	\end{tabular}
+\end{table}
 
-\section {Conclusion}
+\section{Rainfall Model Performance}
+Table \ref{tab:model_results} shows the test results for the two trained rainfall amount models. The deployed MLP achieved the lower MAE, while the CNN achieved the lower RMSE and higher $R^2$. The CNN result suggests that previous weather conditions contain useful information for rainfall amount prediction. However, the MLP was selected for firmware deployment because it was smaller and required only a single weather sample at inference time.
 
-The conclusion section should be very brief, about half a page.It should indicate what the study results reaffirm. it should also briefly discuss some of the strategies highlighted by the respondents. in this section, the researcher should clearly state the how the study has contributed to knowledge.
+\begin{table}[H]
+	\centering
+	\caption{Rainfall amount model performance on the chronological test set.}
+	\label{tab:model_results}
+		\resizebox{\textwidth}{!}{%
+		\begin{tabular}{lrrrrr}
+			\toprule
+			Model & MAE (mm) & RMSE (mm) & $R^{2}$ & Rainy MAE (mm) & Rainy RMSE (mm)\\
+			\midrule
+			MLP current-weather model & 0.153 & 0.515 & 0.192 & 0.347 & 0.917\\
+			1-D CNN 24-hour sequence model & 0.181 & 0.501 & 0.235 & 0.358 & 0.865\\
+			\bottomrule
+		\end{tabular}
+		}
+	\end{table}
 
-\section {Recommendations}
+The $R^2$ values are modest, which is expected for hourly rainfall amount prediction using only five local weather variables and no radar, satellite imagery, pressure fields or numerical weather forecast sequences. The model is therefore better interpreted as a practical rainfall-risk signal for irrigation control rather than a complete meteorological forecasting system. In the control context, even a coarse rainfall amount estimate is useful because the controller mainly needs to decide whether irrigation should be blocked when rain is likely.
+
+The notebook evaluation graphs should be included to complement the numerical metrics in Table \ref{tab:model_results}. MAE and RMSE summarize average error, but the plots show whether the model follows the shape of rainfall events, whether errors are biased and whether the model is useful for the control decision of distinguishing rain from no-rain conditions.
+
+\evidencefigure{images/mlp_actual_vs_predicted_error.png}
+{Recommended graph: export the MLP notebook figure containing ``Actual vs Predicted Precipitation'' and ``Prediction Error Distribution''.}
+{MLP actual-versus-predicted rainfall and prediction error distribution. The scatter plot shows how close the model is to the ideal one-to-one line, while the error histogram reveals bias, spread and the frequency of large under-predictions or over-predictions. This is important because irrigation control is sensitive to missed rainfall events and large false rainfall estimates.}
+{fig:mlp_actual_vs_predicted_error}
+
+\evidencefigure{images/mlp_test_timeline.png}
+{Recommended graph: export the MLP notebook figure titled ``Actual vs Predicted (First 200 hours of Test Set)''.}
+{MLP actual and predicted rainfall over the first 200 hours of the test set. A time-series comparison is useful because rainfall forecasting is sequential in real use; it shows whether the model reacts during wet periods, whether it predicts rain during dry periods and whether peak rainfall amounts are underestimated.}
+{fig:mlp_test_timeline}
+
+\evidencefigure{images/mlp_rain_occurrence_confusion_matrix.png}
+{Recommended graph: export the MLP notebook confusion matrix for rain occurrence at the 0.1 mm threshold.}
+{MLP rain-occurrence confusion matrix. This graph translates rainfall amount prediction into a control-oriented question: did the model identify rain or no rain? It is significant for irrigation because false negatives can lead to watering before rainfall, while false positives can unnecessarily block irrigation.}
+{fig:mlp_rain_occurrence_confusion_matrix}
+
+\evidencefigure{images/cnn_actual_vs_predicted_error.png}
+{Recommended graph: export the CNN notebook figure containing ``Actual vs Predicted Precipitation'' and ``Prediction Error Distribution''.}
+{CNN actual-versus-predicted rainfall and prediction error distribution. This figure is useful for comparing the sequence model with the deployed MLP, showing whether the 24-hour input history improves peak rainfall estimation or reduces error spread.}
+{fig:cnn_actual_vs_predicted_error}
+
+\evidencefigure{images/cnn_test_timeline.png}
+{Recommended graph: export the CNN notebook figure titled ``Actual vs Predicted (First 200 sequences of Test Set)''.}
+{CNN actual and predicted rainfall over the first 200 test sequences. The graph helps evaluate whether temporal context allows the CNN to follow changes in rainfall better than the current-weather MLP, which is important if a future firmware version buffers the previous 24 hours of sensor data.}
+{fig:cnn_test_timeline}
+
+\evidencefigure{images/cnn_rain_occurrence_confusion_matrix.png}
+{Recommended graph: export the CNN notebook confusion matrix for rain occurrence at the 0.1 mm threshold.}
+{CNN rain-occurrence confusion matrix. This graph supports evaluation of the CNN as a future deployment option by showing its rain/no-rain decision behaviour, not only its rainfall amount RMSE and $R^2$.}
+{fig:cnn_rain_occurrence_confusion_matrix}
+
+\section{Embedded Firmware Results}
+The model deployment pipeline produced an 8 KB TensorFlow Lite rainfall model for the MLP. The master firmware uses a 48 KB tensor arena and registers only the fully connected operator required by the deployed network. This is an efficient embedded design because unused TensorFlow Lite Micro operators are not included in the resolver.
+
+The firmware implements the following functions successfully at source-code level:
+\begin{enumerate}[label=(\roman*)]
+	\item Sensor node construction and transmission of weather packets every 5 s.
+	\item Sensor node heartbeat transmission every 15 s.
+	\item Section node reception of sensor packets and forwarding to the master.
+	\item Section node GPIO actuation for valve, spray and fertilizer outputs.
+	\item Master node reception and caching of weather samples.
+	\item Master node initialization of the TensorFlow Lite Micro interpreter.
+	\item Master node rainfall inference and command transmission every 30 s.
+\end{enumerate}
+
+Serial-monitor screenshots are useful in this project because they show the system operating in real time. The recommended screenshots are the sensor-node output while transmitting weather values, the section-node output while forwarding received packets and driving actuators, and the master-node output while initializing the rainfall model and printing the predicted rainfall amount.
+
+\evidencefigure{images/sensor_serial_output.png}
+{Recommended evidence: a screenshot of the Arduino IDE Serial Monitor or another serial terminal showing the sensor node sending weather packets, including temperature, humidity, soil temperature, ET$_0$ and shortwave radiation.}
+{Sensor-node serial-terminal output during weather packet transmission. The output verifies that the node packages weather variables and sends them through ESP-NOW at the configured interval.}
+{fig:sensor_serial_output}
+
+\evidencefigure{images/section_serial_output.png}
+{Recommended evidence: a screenshot showing the section node receiving a weather packet from a sensor node, forwarding it to the master and reporting valve, spray or fertilizer state after receiving a control command.}
+{Section-node serial-terminal output during packet forwarding and actuator control. The log confirms that the intermediate farm section node receives local data, forwards it to the master and responds to control commands.}
+{fig:section_serial_output}
+
+\evidencefigure{images/master_serial_output.png}
+{Recommended evidence: a screenshot showing the master node printing ``Rainfall ML model ready'', receiving weather values, printing the ML precipitation forecast and sending a control packet to the section node.}
+{Master-node serial-terminal output during rainfall inference and irrigation command generation. The output demonstrates that the TensorFlow Lite Micro model is initialized, the rainfall amount is predicted locally and a section-specific control packet is transmitted.}
+{fig:master_serial_output}
+
+The system is modular because additional sensor nodes can be added by assigning node IDs and peer MAC addresses. The section node can also be replicated for separate farm zones. This design is important for irrigation because different plots may require different control commands.
+
+\section{Discussion}
+The project demonstrates that edge AI can be integrated with low-cost microcontroller irrigation control. The main strength of the system is that rainfall inference is performed locally on the master ESP32, reducing dependence on cloud services during operation. The ESP-NOW architecture also avoids the need for a Wi-Fi router in the field, which is useful for short-range farm section networks.
+
+The use of ET$_0$ and shortwave radiation connects the control decision to physical water loss processes. ET$_0$ rises when atmospheric demand is high, while radiation indicates available energy for evaporation. The humidity threshold reduces irrigation during moist atmospheric conditions. The rainfall model adds a predictive component so that irrigation can be blocked when rain is expected.
+
+There are also limitations. The model was trained on historical weather data from a gridded API source rather than on field measurements from the exact deployed sensors. The sensor firmware currently uses a recent weather sample header for prototype transmission rather than a complete calibrated sensor suite. The deployed model predicts rainfall amount from current weather only, so it cannot fully capture larger-scale storm dynamics. The irrigation duration is based on ET$_0$ thresholds rather than a calibrated crop-water balance with soil moisture feedback, crop type and flow rate. These limitations do not invalidate the prototype, but they identify the next steps required for field-ready deployment.
+
+\section{Conclusion}
+This project designed and implemented a prototype ESP32-based smart irrigation system that combines weather data, embedded machine-learning rainfall forecasting and local actuator control. Historical hourly weather data from 2015 to 2025 were processed and used to train two neural rainfall models. A compact MLP model was selected and deployed through TensorFlow Lite Micro on the master ESP32. The firmware architecture supports sensor, section and master nodes communicating through ESP-NOW, with section-level actuator outputs for irrigation, pesticide and fertilizer control.
+
+The deployed rainfall model achieved an hourly rainfall MAE of 0.153 mm and RMSE of 0.515 mm on the test data. The control algorithm uses the predicted rainfall amount to block irrigation when rainfall is expected, and uses ET$_0$, shortwave radiation and humidity to enable irrigation under high evaporative demand. The study therefore achieved its objective of developing a low-cost, edge-AI irrigation control prototype.
+
+\section{Recommendations}
+Future work should integrate physical soil moisture sensors and calibrate them for the target soil type. This would allow the system to combine atmospheric demand, rainfall prediction and actual root-zone water status. The irrigation duration should also be calibrated using valve flow rate, plot area, crop coefficient and soil water holding capacity.
+
+The CNN sequence model should be considered for future firmware work because it achieved better RMSE and $R^2$ than the deployed MLP. To deploy it efficiently, the master node would need reliable buffering of the previous 24 hours of weather features and careful memory testing. Model quantization could further reduce memory use and improve inference speed.
+
+The ESP-NOW network should be tested in an actual farm environment to measure packet loss, range, power consumption and interference. Security options should also be reviewed before field deployment, especially if fertilizer or pesticide actuation is enabled. Finally, a long-term field trial should compare water use, crop response and reliability against manual or timer-based irrigation.
 
 \singlespacing
 \renewcommand{\bibname}{REFERENCES}
-
 \bibliography{ref}\bibliographystyle{FSTstyle}
 \addcontentsline{toc}{chapter}{REFERENCES}
 
-The following section explain the use of google scholar generate list of references.
-
-\begin{itemize}
-	\item Use FSTStyle format of referencing
-	\item Use bibtex from google scholar to generate .bib file
-	\item copy and paste the whole bibtex window content in to your ref.bib. You can choose your own word to replace the word ref but ensure it is the same word in bibliography{ref}.
-	\item In google scholar go to setting and select the bibTEX as demonstrated in the attached figure
-	\vspace{1cm}\\
-	In https://scholar.google.com/\\ settings, select
-	
-	\includegraphics[width=0.5\textwidth]{googlescholar}\\		
-	\item Note: if you use texstudio or any other latex editor, ensure the bibtex file with extension .bib is in the same folder containing .tex file. 
-\end{itemize}
-The references cited should be as recent as possible, some which are a few years.
-
-Internet references need to be separated from the other references – usually as a subsection titled “Internet References” indicating – link validation date.
-	
 \end{document}
