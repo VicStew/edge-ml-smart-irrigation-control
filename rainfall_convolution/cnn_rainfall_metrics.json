@@ -5,6 +5,7 @@
   "feature_columns": [
     "temperature_2m",
     "relative_humidity_2m",
+    "vapour_pressure_deficit_kpa",
     "soil_temperature_0_to_7cm",
     "soil_moisture_0_to_7cm",
     "shortwave_radiation",
@@ -12,12 +13,12 @@
   ],
   "amount_models": {
     "cnn_1d_sequence": {
-      "mae_mm": 0.13599500060081482,
-      "rmse_mm": 0.4216343935325246,
-      "r2": 0.4578002095222473,
+      "mae_mm": 0.13668158650398254,
+      "rmse_mm": 0.41469809494914794,
+      "r2": 0.4754928946495056,
       "rainy_hours_count": 5826,
-      "rainy_mae_mm": 0.3133716881275177,
-      "rainy_rmse_mm": 0.7452055752427404
+      "rainy_mae_mm": 0.30901819467544556,
+      "rainy_rmse_mm": 0.7302221606183866
     }
   },
   "selected_amount_model": "cnn_1d_sequence"

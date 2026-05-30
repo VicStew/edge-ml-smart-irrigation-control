@@ -43,6 +43,7 @@ typedef struct {
   uint32_t sample_time;
   float temperature_2m;
   float relative_humidity_2m;
+  float vapour_pressure_deficit_kpa;
   float soil_temperature_0_to_7cm;
   float soil_moisture_0_to_7cm;
   float et0_fao_evapotranspiration;
@@ -209,6 +210,7 @@ void handle_weather_packet(
   );
   Serial.printf("temperature_2m: %.2f\n", pkt->weather.temperature_2m);
   Serial.printf("relative_humidity_2m: %.2f\n", pkt->weather.relative_humidity_2m);
+  Serial.printf("vapour_pressure_deficit_kpa: %.3f\n", pkt->weather.vapour_pressure_deficit_kpa);
   Serial.printf("soil_temperature_0_to_7cm: %.2f\n", pkt->weather.soil_temperature_0_to_7cm);
   Serial.printf("soil_moisture_0_to_7cm: %.3f\n", pkt->weather.soil_moisture_0_to_7cm);
   Serial.printf("et0_fao_evapotranspiration: %.3f\n", pkt->weather.et0_fao_evapotranspiration);

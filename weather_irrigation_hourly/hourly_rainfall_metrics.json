@@ -4,6 +4,7 @@
   "feature_columns": [
     "temperature_2m",
     "relative_humidity_2m",
+    "vapour_pressure_deficit_kpa",
     "soil_temperature_0_to_7cm",
     "soil_moisture_0_to_7cm",
     "shortwave_radiation",
@@ -11,12 +12,12 @@
   ],
   "amount_models": {
     "mlp_sensors": {
-      "mae_mm": 0.1409066915512085,
-      "rmse_mm": 0.4961538954191974,
-      "r2": 0.2483537793159485,
+      "mae_mm": 0.13626879453659058,
+      "rmse_mm": 0.48418498157532186,
+      "r2": 0.2841808795928955,
       "rainy_hours_count": 5832,
-      "rainy_mae_mm": 0.3287549316883087,
-      "rainy_rmse_mm": 0.8900785610265207
+      "rainy_mae_mm": 0.3267207145690918,
+      "rainy_rmse_mm": 0.8694191475689651
     }
   },
   "selected_amount_model": "mlp_sensors"

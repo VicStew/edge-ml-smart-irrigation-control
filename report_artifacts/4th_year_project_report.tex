@@ -159,9 +159,9 @@ Signature ................................ Date................
 
 \chapter*{ABSTRACT}
 \addcontentsline{toc}{chapter}{ABSTRACT}
-Efficient irrigation requires knowledge of both present crop water demand and near-term rainfall conditions. Many low-cost automated irrigation systems rely on fixed thresholds or cloud-connected controllers, which may waste water when rainfall is imminent, fail where internet access is intermittent, or become difficult to scale across independent farm sections. This project designed and implemented a prototype edge-AI smart irrigation control system based on ESP32 microcontrollers, ESP-NOW peer-to-peer communication, and an embedded rainfall forecasting model. Historical hourly weather data for a representative central Kenya farm location at latitude -0.4201 and longitude 36.9476 were obtained from the Open-Meteo historical weather API for the period 1 January 2015 to 31 December 2025. The dataset contained 96,432 hourly records with temperature, relative humidity, soil temperature, soil moisture, shortwave radiation, FAO reference evapotranspiration and precipitation.
+Efficient irrigation requires knowledge of both present crop water demand and near-term rainfall conditions. Many low-cost automated irrigation systems rely on fixed thresholds or cloud-connected controllers, which may waste water when rainfall is imminent, fail where internet access is intermittent, or become difficult to scale across independent farm sections. This project designed and implemented a prototype edge-AI smart irrigation control system based on ESP32 microcontrollers, ESP-NOW peer-to-peer communication, and an embedded rainfall forecasting model. Historical hourly weather data for a representative central Kenya farm location at latitude -0.4201 and longitude 36.9476 were obtained from the Open-Meteo historical weather API for the period 1 January 2015 to 31 December 2025. The dataset contained 96,432 hourly records with temperature, relative humidity, derived vapour pressure deficit, soil temperature, soil moisture, shortwave radiation, FAO reference evapotranspiration and precipitation.
 
-Two rainfall amount models were developed in Python using TensorFlow: a lightweight multilayer perceptron using current weather features and a 1-D convolutional neural network using 24-hour feature sequences. The multilayer perceptron was selected for firmware deployment because it generated a compact TensorFlow Lite model suitable for TensorFlow Lite Micro on the ESP32 master node. On the held-out chronological test set, the deployed model achieved a mean absolute error of 0.141 mm and a root mean square error of 0.496 mm for hourly rainfall amount prediction. A separate 1-D convolutional experiment achieved a lower root mean square error of 0.422 mm and a higher coefficient of determination, but required sequence input handling and was not integrated into the final firmware. The completed prototype uses sensor nodes to transmit weather observations, a section node to drive irrigation, pesticide and fertilizer actuators, and a master node to perform local inference and send control commands. Irrigation is inhibited when predicted rainfall exceeds 1.0 mm and is enabled under high evaporative demand conditions using reference evapotranspiration, solar radiation and humidity thresholds. The project demonstrates that a low-cost microcontroller network can combine meteorological sensing, local machine-learning inference and actuator control for weather-aware irrigation without continuous cloud dependence.
+Two rainfall amount models were developed in Python using TensorFlow: a lightweight multilayer perceptron using current weather features and a 1-D convolutional neural network using 24-hour feature sequences. The multilayer perceptron was selected for firmware deployment because it generated a compact TensorFlow Lite model suitable for TensorFlow Lite Micro on the ESP32 master node. On the held-out chronological test set, the deployed model achieved a mean absolute error of 0.136 mm and a root mean square error of 0.484 mm for hourly rainfall amount prediction. A separate 1-D convolutional experiment achieved a lower root mean square error of 0.415 mm and a higher coefficient of determination, but required sequence input handling and was not integrated into the final firmware. The completed prototype uses sensor nodes to transmit weather observations, including vapour pressure deficit computed from measured temperature and relative humidity, a section node to drive irrigation, pesticide and fertilizer actuators, and a master node to perform local inference and send control commands. Irrigation is inhibited when predicted rainfall exceeds 1.0 mm and is enabled under high evaporative demand conditions using reference evapotranspiration, solar radiation and humidity thresholds. The project demonstrates that a low-cost microcontroller network can combine meteorological sensing, local machine-learning inference and actuator control for weather-aware irrigation without continuous cloud dependence.
 
 \cleardoublepage
 \titlecontents{chapter}
@@ -197,6 +197,7 @@ Two rainfall amount models were developed in Python using TensorFlow: a lightwei
 \nomenclature{RMSE}{Root Mean Square Error}
 \nomenclature{TFLite}{TensorFlow Lite}
 \nomenclature{TFLM}{TensorFlow Lite Micro}
+\nomenclature{VPD}{Vapour pressure deficit}
 \nomenclature{WSN}{Wireless Sensor Network}
 \nomenclature{$P$}{Precipitation or rainfall amount}
 \nomenclature{$I$}{Irrigation amount}
@@ -302,12 +303,22 @@ The FAO-56 Penman-Monteith equation estimates daily reference evapotranspiration
 \end{equation}
 where $R_n$ is net radiation, $G$ is soil heat flux density, $T$ is mean air temperature, $u_2$ is wind speed at 2 m height, $e_s-e_a$ is vapour pressure deficit, $\Delta$ is the slope of the saturation vapour pressure curve and $\gamma$ is the psychrometric constant. The Open-Meteo dataset used in this project supplied hourly FAO ET$_0$, allowing the controller to use evapotranspiration without calculating all intermediate meteorological terms in the firmware.
 
+Vapour pressure deficit was also used directly as a model input. It was calculated from air temperature and relative humidity as
+\begin{equation}
+	e_s = 0.6108\exp\left(\frac{17.27T}{T+237.3}\right),
+\end{equation}
+\begin{equation}
+	VPD = e_s\left(1-\frac{RH}{100}\right),
+	\label{eq:vpd}
+\end{equation}
+where $e_s$ is saturation vapour pressure in kPa, $T$ is air temperature in degrees Celsius and $RH$ is relative humidity in percent. This derived feature summarizes atmospheric drying demand using measurements already available at the sensor node.
+
 \section{Rainfall Prediction Model}
 The deployed rainfall model predicts hourly rainfall amount from a feature vector
 \begin{equation}
-	x = [T,\ RH,\ T_s,\ M_s,\ R_s,\ ET_0],
+	x = [T,\ RH,\ VPD,\ T_s,\ M_s,\ R_s,\ ET_0],
 \end{equation}
-where $T$ is air temperature, $RH$ is relative humidity, $T_s$ is soil temperature, $M_s$ is near-surface soil moisture, $R_s$ is shortwave radiation and $ET_0$ is reference evapotranspiration. The features are standardized using training-set statistics:
+where $T$ is air temperature, $RH$ is relative humidity, $VPD$ is vapour pressure deficit, $T_s$ is soil temperature, $M_s$ is near-surface soil moisture, $R_s$ is shortwave radiation and $ET_0$ is reference evapotranspiration. The features are standardized using training-set statistics:
 \begin{equation}
 	x'_i = \frac{x_i-\mu_i}{\sigma_i}.
 	\label{eq:standardization}
@@ -364,7 +375,7 @@ When irrigation is enabled, the duration is scaled from 60 s to 300 s according 
 \section{Study Area and Data Source}
 The model development used a representative farm location in central Kenya with coordinates latitude -0.4201 and longitude 36.9476. Historical hourly weather records were downloaded from the Open-Meteo historical weather API, which provides historical weather variables derived from reanalysis and weather model datasets \citep{openmeteo2026historical}. The period covered was 1 January 2015 to 31 December 2025 in the Africa/Nairobi timezone.
 
-The downloaded variables were air temperature at 2 m, relative humidity at 2 m, soil temperature from 0 to 7 cm, soil moisture from 0 to 7 cm, shortwave radiation, FAO ET$_0$ evapotranspiration and precipitation. These variables were selected because they are physically connected to evaporation, soil water status, rainfall formation and irrigation need.
+The downloaded variables were air temperature at 2 m, relative humidity at 2 m, soil temperature from 0 to 7 cm, soil moisture from 0 to 7 cm, shortwave radiation, FAO ET$_0$ evapotranspiration and precipitation. Vapour pressure deficit was then derived from temperature and relative humidity. These variables were selected because they are physically connected to evaporation, soil water status, rainfall formation and irrigation need.
 
 \section{Research Design}
 The project followed a design-build-test approach. First, historical weather data were collected and normalized. Second, rainfall forecasting models were trained and evaluated. Third, the selected model was converted into a TensorFlow Lite format and exported into firmware source files. Fourth, ESP32 firmware was implemented for the sensor, section and master nodes. Finally, the complete system logic was evaluated using model metrics, firmware structure and prototype behaviour.
@@ -415,9 +426,9 @@ The section node firmware defines GPIO outputs for a valve, pesticide sprayer an
 {fig:actuator_valve_setup}
 
 \section{Field Sensor Inputs for Model Features}
-The deployed rainfall model expects six weather inputs: air temperature, relative humidity, near-surface soil temperature, near-surface soil moisture, shortwave radiation and ET$_0$. In the prototype dataset these values came from Open-Meteo, but the same input vector can be produced from a field sensor node after calibration. The sensor node would sample local instruments, convert raw readings into physical units and transmit the resulting feature vector to the section node and master node through ESP-NOW.
+The deployed rainfall model expects seven weather inputs: air temperature, relative humidity, vapour pressure deficit, near-surface soil temperature, near-surface soil moisture, shortwave radiation and ET$_0$. In the prototype dataset these values came from Open-Meteo or were derived from Open-Meteo variables, but the same input vector can be produced from a field sensor node after calibration. The sensor node samples local instruments, converts raw readings into physical units, calculates vapour pressure deficit from temperature and humidity, and transmits the resulting feature vector to the section node and master node through ESP-NOW.
 
-An AHT10 temperature and humidity sensor can provide the air temperature and relative humidity terms used by the model. The sensor should be placed in a shaded, ventilated enclosure so that direct solar heating does not bias the temperature reading. These two measurements are important because temperature and humidity influence evaporation, vapour pressure deficit and rainfall likelihood. The AHT10 output can therefore replace the corresponding Open-Meteo columns during field operation, provided the firmware uses the same units as the training dataset.
+An AHT10 temperature and humidity sensor can provide the air temperature and relative humidity terms used by the model. The sensor should be placed in a shaded, ventilated enclosure so that direct solar heating does not bias the temperature reading. These two measurements are important because temperature and humidity influence evaporation, vapour pressure deficit and rainfall likelihood. The firmware computes vapour pressure deficit in kPa from the same measurements, so the AHT10 output can replace the corresponding Open-Meteo columns during field operation, provided the firmware uses the same units as the training dataset.
 
 Soil sensors provide two of the deployed model inputs. A soil temperature probe placed near the surface can provide the \texttt{soil\_temperature\_0\_to\_7cm} feature, while a calibrated capacitive or resistive soil moisture sensor can provide the \texttt{soil\_moisture\_0\_to\_7cm} feature. Soil moisture is useful because it gives the model and controller a direct indication of near-surface water status rather than relying only on atmospheric variables. After calibration against dry and saturated soil conditions, the same soil moisture reading can also be used as a control override when the soil is already wet.
 
@@ -433,6 +444,7 @@ Solar panels can support the system in two roles. First, they can power remote E
 		\midrule
 		Air temperature & AHT10 & Mount in a shaded ventilated enclosure\\
 		Relative humidity & AHT10 & Use percent relative humidity as in training data\\
+		Vapour pressure deficit & Sensor-node firmware & Compute from air temperature and relative humidity in kPa\\
 		Soil temperature & Soil temperature probe & Place near 0--7 cm depth to match dataset feature\\
 		Soil moisture & Capacitive or resistive soil sensor & Calibrate to match \texttt{soil\_moisture\_0\_to\_7cm}\\
 		Shortwave radiation & Calibrated solar panel or light sensor & Convert proxy reading to W m$^{-2}$ if possible\\
@@ -446,6 +458,7 @@ The data acquisition script downloaded hourly historical data and saved it as \p
 \begin{enumerate}[label=(\roman*)]
 	\item Convert timestamps to local time.
 	\item Rename precipitation and evapotranspiration fields to consistent names.
+	\item Derive vapour pressure deficit from air temperature and relative humidity.
 	\item Clip negative precipitation values to zero.
 	\item Drop records with missing input or target variables.
 	\item Sort records chronologically.
@@ -463,6 +476,7 @@ The final dataset contained 96,432 hourly records. The chronological split used 
 		\midrule
 		Air temperature (deg C) & 16.853 & 7.100 & 29.400 & 3.495\\
 		Relative humidity (\%) & 77.778 & 16.000 & 100.000 & 16.320\\
+		Vapour pressure deficit (kPa) & 0.499 & 0.000 & 3.326 & 0.478\\
 		Soil temperature 0--7 cm (deg C) & 18.356 & 9.200 & 31.700 & 3.280\\
 		Soil moisture 0--7 cm (m$^3$ m$^{-3}$) & 0.316 & 0.112 & 0.479 & 0.082\\
 		Shortwave radiation (W m$^{-2}$) & 236.356 & 0.000 & 1143.000 & 315.409\\
@@ -490,7 +504,7 @@ The correlation heatmap should be used to discuss both relationships and limitat
 {fig:notebook_chronological_split_log_target}
 
 \section{Rainfall Model Development}
-Two TensorFlow models were trained. The first was an MLP with two hidden layers of 32 and 16 neurons. The second was a 1-D CNN using 24-hour sequences. Both models used the same six weather features and the same log-transformed rainfall target. Early stopping monitored validation loss with patience of five epochs, and training was limited to 40 epochs with a batch size of 256.
+Two TensorFlow models were trained. The first was an MLP with two hidden layers of 32 and 16 neurons. The second was a 1-D CNN using 24-hour sequences. Both models used the same seven weather features and the same log-transformed rainfall target. Early stopping monitored validation loss with patience of five epochs, and training was limited to 40 epochs with a batch size of 256.
 
 The MLP was selected for deployment because it only requires the latest feature vector. The CNN was retained as an experimental comparison because it tests the value of short history. The model training scripts also exported the feature mean, feature standard deviation, rainfall target mean and rainfall target standard deviation. These constants were written into the master firmware preprocessing header to ensure that the ESP32 used the same scaling as Python training.
 
@@ -636,14 +650,14 @@ Table \ref{tab:model_results} shows the test results for the two trained rainfal
 			\toprule
 			Model & MAE (mm) & RMSE (mm) & $R^{2}$ & Rainy MAE (mm) & Rainy RMSE (mm)\\
 			\midrule
-			MLP current-weather model & 0.141 & 0.496 & 0.248 & 0.329 & 0.890\\
-			1-D CNN 24-hour sequence model & 0.136 & 0.422 & 0.458 & 0.313 & 0.745\\
+			MLP current-weather model & 0.136 & 0.484 & 0.284 & 0.327 & 0.869\\
+			1-D CNN 24-hour sequence model & 0.137 & 0.415 & 0.475 & 0.309 & 0.730\\
 			\bottomrule
 		\end{tabular}
 		}
 	\end{table}
 
-The $R^2$ values are modest, which is expected for hourly rainfall amount prediction using only six local weather variables and no radar, satellite imagery, pressure fields or numerical weather forecast sequences. The model is therefore better interpreted as a practical rainfall-risk signal for irrigation control rather than a complete meteorological forecasting system. In the control context, even a coarse rainfall amount estimate is useful because the controller mainly needs to decide whether irrigation should be blocked when rain is likely.
+The $R^2$ values are modest, which is expected for hourly rainfall amount prediction using only seven local weather variables and no radar, satellite imagery, pressure fields or numerical weather forecast sequences. The model is therefore better interpreted as a practical rainfall-risk signal for irrigation control rather than a complete meteorological forecasting system. In the control context, even a coarse rainfall amount estimate is useful because the controller mainly needs to decide whether irrigation should be blocked when rain is likely.
 
 The notebook evaluation graphs should be included to complement the numerical metrics in Table \ref{tab:model_results}. MAE and RMSE summarize average error, but the plots show whether the model follows the shape of rainfall events, whether errors are biased and whether the model is useful for the control decision of distinguishing rain from no-rain conditions.
 
@@ -678,11 +692,12 @@ The notebook evaluation graphs should be included to complement the numerical me
 {fig:cnn_rain_occurrence_confusion_matrix}
 
 \section{Embedded Firmware Results}
-The model deployment pipeline produced an 8 KB TensorFlow Lite rainfall model for the MLP. The master firmware uses a 48 KB tensor arena and registers only the fully connected operator required by the deployed network. This is an efficient embedded design because unused TensorFlow Lite Micro operators are not included in the resolver.
+The model deployment pipeline produced a 5,172-byte TensorFlow Lite rainfall model for the MLP. The master firmware uses a 48 KB tensor arena and registers only the fully connected operator required by the deployed network. This is an efficient embedded design because unused TensorFlow Lite Micro operators are not included in the resolver.
 
 The firmware implements the following functions successfully at source-code level:
 \begin{enumerate}[label=(\roman*)]
 	\item Sensor node construction and transmission of weather packets every 5 s.
+	\item Sensor node calculation of vapour pressure deficit from temperature and relative humidity.
 	\item Sensor node heartbeat transmission every 15 s.
 	\item Section node reception of sensor packets and forwarding to the master.
 	\item Section node GPIO actuation for valve, spray and fertilizer outputs.
@@ -694,7 +709,7 @@ The firmware implements the following functions successfully at source-code leve
 Serial-monitor screenshots are useful in this project because they show the system operating in real time. The recommended screenshots are the sensor-node output while transmitting weather values, the section-node output while forwarding received packets and driving actuators, and the master-node output while initializing the rainfall model and printing the predicted rainfall amount.
 
 \evidencefigure{images/sensor_serial_output.png}
-{Recommended evidence: a screenshot of the Arduino IDE Serial Monitor or another serial terminal showing the sensor node sending weather packets, including temperature, humidity, soil temperature, soil moisture, ET$_0$ and shortwave radiation.}
+{Recommended evidence: a screenshot of the Arduino IDE Serial Monitor or another serial terminal showing the sensor node sending weather packets, including temperature, humidity, vapour pressure deficit, soil temperature, soil moisture, ET$_0$ and shortwave radiation.}
 {Sensor-node serial-terminal output during weather packet transmission. The output verifies that the node packages weather variables and sends them through ESP-NOW at the configured interval.}
 {fig:sensor_serial_output}
 
@@ -713,14 +728,14 @@ The system is modular because additional sensor nodes can be added by assigning 
 \section{Discussion}
 The project demonstrates that edge AI can be integrated with low-cost microcontroller irrigation control. The main strength of the system is that rainfall inference is performed locally on the master ESP32, reducing dependence on cloud services during operation. The ESP-NOW architecture also avoids the need for a Wi-Fi router in the field, which is useful for short-range farm section networks.
 
-The use of ET$_0$ and shortwave radiation connects the control decision to physical water loss processes. ET$_0$ rises when atmospheric demand is high, while radiation indicates available energy for evaporation. The humidity threshold reduces irrigation during moist atmospheric conditions. The rainfall model adds a predictive component so that irrigation can be blocked when rain is expected.
+The use of ET$_0$, shortwave radiation and vapour pressure deficit connects the control decision to physical water loss processes. ET$_0$ rises when atmospheric demand is high, radiation indicates available energy for evaporation and vapour pressure deficit summarizes atmospheric drying demand. The humidity threshold reduces irrigation during moist atmospheric conditions. The rainfall model adds a predictive component so that irrigation can be blocked when rain is expected.
 
 There are also limitations. The model was trained on historical weather data from a gridded API source rather than on field measurements from the exact deployed sensors. The sensor firmware currently uses a recent weather sample header for prototype transmission rather than a complete calibrated sensor suite. The deployed MLP predicts rainfall amount from current weather only, so it cannot fully capture larger-scale storm dynamics. The irrigation duration is based on ET$_0$ thresholds rather than a calibrated crop-water balance with crop type and flow rate. These limitations do not invalidate the prototype, but they identify the next steps required for field-ready deployment.
 
 \section{Conclusion}
 This project designed and implemented a prototype ESP32-based smart irrigation system that combines weather data, embedded machine-learning rainfall forecasting and local actuator control. Historical hourly weather data from 2015 to 2025 were processed and used to train two neural rainfall models. A compact MLP model was selected and deployed through TensorFlow Lite Micro on the master ESP32. The firmware architecture supports sensor, section and master nodes communicating through ESP-NOW, with section-level actuator outputs for irrigation, pesticide and fertilizer control.
 
-The deployed rainfall model achieved an hourly rainfall MAE of 0.141 mm and RMSE of 0.496 mm on the test data. The control algorithm uses the predicted rainfall amount to block irrigation when rainfall is expected, and uses ET$_0$, shortwave radiation and humidity to enable irrigation under high evaporative demand. The study therefore achieved its objective of developing a low-cost, edge-AI irrigation control prototype.
+The deployed rainfall model achieved an hourly rainfall MAE of 0.136 mm and RMSE of 0.484 mm on the test data. The control algorithm uses the predicted rainfall amount to block irrigation when rainfall is expected, and uses ET$_0$, shortwave radiation and humidity to enable irrigation under high evaporative demand. The study therefore achieved its objective of developing a low-cost, edge-AI irrigation control prototype.
 
 \section{Recommendations}
 Future work should replace the prototype Open-Meteo soil moisture samples with physical soil moisture sensors calibrated for the target soil type. This would allow the system to combine atmospheric demand, rainfall prediction and actual root-zone water status from local measurements. The irrigation duration should also be calibrated using valve flow rate, plot area, crop coefficient and soil water holding capacity.

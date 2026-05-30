@@ -1,6 +1,7 @@
 [
   "temperature_2m",
   "relative_humidity_2m",
+  "vapour_pressure_deficit_kpa",
   "soil_temperature_0_to_7cm",
   "soil_moisture_0_to_7cm",
   "shortwave_radiation",

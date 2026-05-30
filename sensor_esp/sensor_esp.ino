@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_mac.h>
+#include <math.h>
 
 #include "recent_weather_sample.h"
 
@@ -43,6 +44,7 @@ typedef struct {
   uint32_t sample_time;
   float temperature_2m;
   float relative_humidity_2m;
+  float vapour_pressure_deficit_kpa;
   float soil_temperature_0_to_7cm;
   float soil_moisture_0_to_7cm;
   float et0_fao_evapotranspiration;
@@ -115,6 +117,49 @@ void print_mac(const uint8_t *mac) {
   );
 }
 
+float clamp_float(
+  float value,
+  float low,
+  float high
+) {
+  if (value < low) {
+    return low;
+  }
+
+  if (value > high) {
+    return high;
+  }
+
+  return value;
+}
+
+float calculate_vapour_pressure_deficit_kpa(
+  float temperature_c,
+  float relative_humidity_percent
+) {
+  float relative_humidity =
+    clamp_float(
+      relative_humidity_percent,
+      0.0f,
+      100.0f
+    );
+
+  float saturation_vapour_pressure_kpa =
+    0.6108f *
+    expf(
+      (17.27f * temperature_c) /
+      (temperature_c + 237.3f)
+    );
+
+  float vapour_pressure_deficit_kpa =
+    saturation_vapour_pressure_kpa *
+    (1.0f - (relative_humidity / 100.0f));
+
+  return vapour_pressure_deficit_kpa > 0.0f ?
+    vapour_pressure_deficit_kpa :
+    0.0f;
+}
+
 weather_payload_t read_weather_sample() {
   recent_weather_sample_t sample =
     RECENT_WEATHER_SAMPLES[
@@ -125,6 +170,11 @@ weather_payload_t read_weather_sample() {
   reading.sample_time = sample.sample_time;
   reading.temperature_2m = sample.temperature_2m;
   reading.relative_humidity_2m = sample.relative_humidity_2m;
+  reading.vapour_pressure_deficit_kpa =
+    calculate_vapour_pressure_deficit_kpa(
+      reading.temperature_2m,
+      reading.relative_humidity_2m
+    );
   reading.soil_temperature_0_to_7cm = sample.soil_temperature_0_to_7cm;
   reading.soil_moisture_0_to_7cm = sample.soil_moisture_0_to_7cm;
   reading.et0_fao_evapotranspiration = sample.et0_fao_evapotranspiration;
@@ -167,6 +217,7 @@ void send_weather_packet() {
     Serial.println("Weather packet sent");
     Serial.printf("temperature_2m: %.2f\n", pkt.weather.temperature_2m);
     Serial.printf("relative_humidity_2m: %.2f\n", pkt.weather.relative_humidity_2m);
+    Serial.printf("vapour_pressure_deficit_kpa: %.3f\n", pkt.weather.vapour_pressure_deficit_kpa);
     Serial.printf("soil_temperature_0_to_7cm: %.2f\n", pkt.weather.soil_temperature_0_to_7cm);
     Serial.printf("soil_moisture_0_to_7cm: %.3f\n", pkt.weather.soil_moisture_0_to_7cm);
     Serial.printf("et0_fao_evapotranspiration: %.3f\n", pkt.weather.et0_fao_evapotranspiration);

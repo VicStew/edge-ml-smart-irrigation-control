@@ -25,7 +25,7 @@ This folder contains the firmware for a section controller ESP32. A section node
 
 1. `setup()` starts serial output, sets WiFi station mode, initializes GPIO outputs, and starts ESP-NOW.
 2. Sensor nodes send weather packets to the section node.
-3. `handle_weather_packet()` remembers the sensor peer, rewrites the packet source and destination, sets the section ID, and forwards the weather packet to the master.
+3. `handle_weather_packet()` remembers the sensor peer, rewrites the packet source and destination, sets the section ID, and forwards the weather packet, including vapour pressure deficit, to the master.
 4. The master sends `MSG_CONTROL_CMD` packets back to this section node.
 5. `handle_control_packet()` updates the valve, spray, and fertilizer GPIO pins.
 6. `send_status()` periodically reports output state back to the master.

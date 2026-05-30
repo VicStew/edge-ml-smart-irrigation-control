@@ -42,10 +42,12 @@ C_ARRAY_NAME = "cnn_rainfall_forecaster_tflite"
 RAIN_THRESHOLD_MM = 0.1
 SEED = 7
 TIME_STEPS = 24  # 24 hours of sequence for the 1D CNN
+VPD_COLUMN = "vapour_pressure_deficit_kpa"
 
 FEATURES = [
     "temperature_2m",
     "relative_humidity_2m",
+    VPD_COLUMN,
     "soil_temperature_0_to_7cm",
     "soil_moisture_0_to_7cm",
     "shortwave_radiation",
@@ -53,8 +55,23 @@ FEATURES = [
 ]
 
 
+def add_vapour_pressure_deficit(df: pd.DataFrame) -> pd.DataFrame:
+    if VPD_COLUMN in df.columns:
+        return df
+
+    saturation_vapour_pressure_kpa = 0.6108 * np.exp(
+        (17.27 * df["temperature_2m"]) / (df["temperature_2m"] + 237.3)
+    )
+    relative_humidity_fraction = df["relative_humidity_2m"].clip(lower=0, upper=100) / 100.0
+    df[VPD_COLUMN] = (
+        saturation_vapour_pressure_kpa * (1.0 - relative_humidity_fraction)
+    ).clip(lower=0)
+    return df
+
+
 def load_weather() -> pd.DataFrame:
     df = pd.read_csv(DATA_PATH)
+    df = add_vapour_pressure_deficit(df)
     df["time"] = pd.to_datetime(df["time"])
     df = df.sort_values("time").reset_index(drop=True)
     df["precipitation_mm"] = df["precipitation_mm"].clip(lower=0)

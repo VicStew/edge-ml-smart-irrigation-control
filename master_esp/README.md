@@ -50,4 +50,5 @@ This folder contains the firmware for the master ESP32. The master receives weat
 - `RAIN_AMOUNT_BLOCK_THRESHOLD_MM` controls how much forecast rain blocks irrigation.
 - `MIN_IRRIGATION_DURATION_SEC` and `MAX_IRRIGATION_DURATION_SEC` bound the irrigation time chosen by the decision engine.
 - `TENSOR_ARENA_SIZE` may need adjustment if the deployed model changes.
+- The deployed model expects weather packets to include `vapour_pressure_deficit_kpa` after relative humidity.
 - The packet structure must stay compatible with `section_esp.ino` and `sensor_esp.ino`.

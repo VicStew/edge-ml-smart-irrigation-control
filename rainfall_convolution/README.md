@@ -37,7 +37,7 @@ The current deployed master firmware uses the simpler hourly MLP model from `../
 
 1. `train_cnn_model.py` loads `../weather_irrigation_hourly/historical_weather_data_hourly.csv`.
 2. It sorts data by time, clips negative rainfall, and drops rows with missing feature or target values.
-3. It scales six input features using training-set mean and standard deviation.
+3. It scales seven input features using training-set mean and standard deviation.
 4. It creates 24-hour sequences with `TIME_STEPS = 24`.
 5. It trains a Conv1D model to predict log-scaled rainfall amount.
 6. It exports Keras, TFLite, C-array, scaling, feature-list, and metrics artifacts.
@@ -60,6 +60,6 @@ The current deployed master firmware uses the simpler hourly MLP model from `../
 
 ## Notes
 
-- This model expects input shaped as 24 time steps by 6 features.
+- This model expects input shaped as 24 time steps by 7 features.
 - The generated C array is not copied into `master_esp` by this script.
 - To deploy this CNN on the ESP32, the master firmware would need sequence-buffer input handling and a TensorFlow Lite Micro op resolver that includes the CNN operations.

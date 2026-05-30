@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -37,6 +38,19 @@ INPUT_RENAME_MAP = {
     "et0_fao_evapotranspiration": "et0_fao_evapotranspiration_mm",
     "et0_fao_evapotranspiration (mm)": "et0_fao_evapotranspiration_mm",
 }
+
+VPD_COLUMN = "vapour_pressure_deficit_kpa"
+
+
+def add_vapour_pressure_deficit(df: pd.DataFrame) -> pd.DataFrame:
+    saturation_vapour_pressure_kpa = 0.6108 * np.exp(
+        (17.27 * df["temperature_2m"]) / (df["temperature_2m"] + 237.3)
+    )
+    relative_humidity_fraction = df["relative_humidity_2m"].clip(lower=0, upper=100) / 100.0
+    df[VPD_COLUMN] = (
+        saturation_vapour_pressure_kpa * (1.0 - relative_humidity_fraction)
+    ).clip(lower=0)
+    return df
 
 
 def parse_export_csv(export_path: Path) -> pd.DataFrame:
@@ -88,11 +102,13 @@ def normalize_hourly_dataframe(data_df: pd.DataFrame, timezone_name: str) -> pd.
     # Open-Meteo returns time in local time when timezone is set
     df["time"] = timestamps.dt.strftime("%Y-%m-%dT%H:%M:%S")
     df["precipitation_mm"] = df["precipitation_mm"].clip(lower=0)
+    df = add_vapour_pressure_deficit(df)
 
     ordered_columns = [
         "time",
         "temperature_2m",
         "relative_humidity_2m",
+        VPD_COLUMN,
         "soil_temperature_0_to_7cm",
         "soil_moisture_0_to_7cm",
         "shortwave_radiation",
