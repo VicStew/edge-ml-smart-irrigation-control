@@ -1,7 +1,6 @@
 {
   "train_rows": 77122,
   "test_rows": 19264,
-  "time_steps": 24,
   "feature_columns": [
     "temperature_2m",
     "relative_humidity_2m",
@@ -11,14 +10,15 @@
     "shortwave_radiation",
     "et0_fao_evapotranspiration_mm"
   ],
+  "time_steps": 24,
   "amount_models": {
     "cnn_1d_sequence": {
-      "mae_mm": 0.13668158650398254,
-      "rmse_mm": 0.41469809494914794,
-      "r2": 0.4754928946495056,
+      "mae_mm": 0.156195729970932,
+      "rmse_mm": 0.42062197144255536,
+      "r2": 0.46040093898773193,
       "rainy_hours_count": 5826,
-      "rainy_mae_mm": 0.30901819467544556,
-      "rainy_rmse_mm": 0.7302221606183866
+      "rainy_mae_mm": 0.3205164968967438,
+      "rainy_rmse_mm": 0.7254010012310261
     }
   },
   "selected_amount_model": "cnn_1d_sequence"

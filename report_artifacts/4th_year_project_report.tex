@@ -137,22 +137,12 @@ Signature ................................ Date................\\
 \noindent This project report is submitted for examination with our approval as research supervisors:
 	\\
 
-	\noindent \textbf{Supervisor 1}\\
+	\noindent \textbf{Mr. Mjomba A C Kale}\\
 	University of Nairobi \\
 	Department of Physics\\
 	P.O. Box 30197 - 00100,\\
 	Nairobi, Kenya\\
-	supervisor-email@uonbi.ac.ke\\
-
-Signature ................................ Date................
-	\\
-
-\noindent \textbf{Supervisor 2}\\
-University of Nairobi \\
-Department of Physics\\
-P.O. Box 30197 - 00100,\\
-Nairobi, Kenya\\
-supervisor-email@uonbi.ac.ke\\
+	mjomba@uonbi.ac.ke\\
 
 Signature ................................ Date................
 	\doublespacing
@@ -415,15 +405,15 @@ The main hardware platform was the ESP32 microcontroller. Three firmware roles w
 
 The section node firmware defines GPIO outputs for a valve, pesticide sprayer and fertilizer actuator. In the prototype code these are assigned to pins 25, 26 and 27 respectively. The software tools used were Python, pandas, NumPy, scikit-learn, TensorFlow, TensorFlow Lite, Arduino-style ESP32 firmware and TensorFlow Lite Micro.
 
-\evidencefigure{images/esp32_prototype_overview.jpg}
-{Recommended evidence: a clear photograph of the assembled prototype showing the ESP32 boards, jumper connections, breadboard or carrier board, power supply and actuator interface.}
-{Assembled ESP32 prototype used for the smart irrigation control system. The photograph should show the master, section and sensor-node hardware or a representative subset of the nodes used during testing.}
-{fig:esp32_prototype_overview}
+% \evidencefigure{images/esp32_prototype_overview.jpg}
+% {Recommended evidence: a clear photograph of the assembled prototype showing the ESP32 boards, jumper connections, breadboard or carrier board, power supply and actuator interface.}
+% {Assembled ESP32 prototype used for the smart irrigation control system. The photograph should show the master, section and sensor-node hardware or a representative subset of the nodes used during testing.}
+% {fig:esp32_prototype_overview}
 
-\evidencefigure{images/actuator_valve_setup.jpg}
-{Recommended evidence: a close-up photograph of the section-node actuator side, including relay module or driver circuit, valve connection and the GPIO wiring for irrigation, pesticide and fertilizer outputs.}
-{Section-node actuator interface for farm control. The valve, spray and fertilizer outputs are controlled by GPIO pins on the ESP32 section node, allowing the master node to translate weather-aware decisions into physical action.}
-{fig:actuator_valve_setup}
+% \evidencefigure{images/actuator_valve_setup.jpg}
+% {Recommended evidence: a close-up photograph of the section-node actuator side, including relay module or driver circuit, valve connection and the GPIO wiring for irrigation, pesticide and fertilizer outputs.}
+% {Section-node actuator interface for farm control. The valve, spray and fertilizer outputs are controlled by GPIO pins on the ESP32 section node, allowing the master node to translate weather-aware decisions into physical action.}
+% {fig:actuator_valve_setup}
 
 \section{Field Sensor Inputs for Model Features}
 The deployed rainfall model expects seven weather inputs: air temperature, relative humidity, vapour pressure deficit, near-surface soil temperature, near-surface soil moisture, shortwave radiation and ET$_0$. In the prototype dataset these values came from Open-Meteo or were derived from Open-Meteo variables, but the same input vector can be produced from a field sensor node after calibration. The sensor node samples local instruments, converts raw readings into physical units, calculates vapour pressure deficit from temperature and humidity, and transmits the resulting feature vector to the section node and master node through ESP-NOW.
@@ -491,7 +481,7 @@ The final dataset contained 96,432 hourly records. The chronological split used 
 {Feature correlation heatmap for the selected weather variables and precipitation. The heatmap is important for feature engineering because it shows which variables are physically related, which variables may carry overlapping information and how weak direct linear correlation with rainfall motivates the use of a nonlinear neural network instead of a simple linear rule.}
 {fig:notebook_feature_correlation_heatmap}
 
-The correlation heatmap should be used to discuss both relationships and limitations. Temperature, radiation and ET$_0$ are expected to move together because radiation and temperature increase evaporative demand. Humidity often moves in the opposite direction during hot, dry periods. Rainfall may show only weak linear correlation with any single input, which supports using the combined feature vector rather than relying on one threshold.
+The correlation heatmap in Figure \ref{fig:notebook_feature_correlation_heatmap} shows clear structure in the actual dataset. Air temperature is strongly correlated with soil temperature ($r=0.936$), vapour pressure deficit ($r=0.881$), ET$_0$ ($r=0.858$) and shortwave radiation ($r=0.830$), confirming that these variables describe related evaporative-demand conditions. Relative humidity has strong negative correlations with vapour pressure deficit ($r=-0.971$), temperature ($r=-0.828$), ET$_0$ ($r=-0.790$) and radiation ($r=-0.752$), which is consistent with hot, bright hours having drier air. Shortwave radiation and ET$_0$ are almost perfectly correlated ($r=0.995$), indicating that they carry highly overlapping information in this hourly dataset. In contrast, precipitation has only weak linear relationships with the individual inputs: the largest is soil moisture ($r=0.230$), followed by relative humidity ($r=0.120$) and vapour pressure deficit ($r=-0.091$), while temperature, radiation and ET$_0$ are close to zero. This supports using the full feature vector and a nonlinear neural network, because rainfall occurrence is not captured well by any single linear threshold.
 
 \evidencefigure{images/notebook_feature_pairplot.png}
 {Recommended graph: export the sampled ``Pairplot of Sensor Variables and Precipitation'' from the notebook.}
@@ -503,7 +493,7 @@ The correlation heatmap should be used to discuss both relationships and limitat
 {Chronological train-test split and rainfall target transformation. The timeline verifies that the model was evaluated on later unseen records, while the raw and log-scaled target histograms show why \texttt{log1p} was applied to reduce skew and make optimization less dominated by rare heavy-rainfall hours.}
 {fig:notebook_chronological_split_log_target}
 
-\section{Rainfall Model Development}
+\section{Rainfall Model Development} 
 Two TensorFlow models were trained. The first was an MLP with two hidden layers of 32 and 16 neurons. The second was a 1-D CNN using 24-hour sequences. Both models used the same seven weather features and the same log-transformed rainfall target. Early stopping monitored validation loss with patience of five epochs, and training was limited to 40 epochs with a batch size of 256.
 
 The MLP was selected for deployment because it only requires the latest feature vector. The CNN was retained as an experimental comparison because it tests the value of short history. The model training scripts also exported the feature mean, feature standard deviation, rainfall target mean and rainfall target standard deviation. These constants were written into the master firmware preprocessing header to ensure that the ESP32 used the same scaling as Python training.
@@ -659,37 +649,48 @@ Table \ref{tab:model_results} shows the test results for the two trained rainfal
 
 The $R^2$ values are modest, which is expected for hourly rainfall amount prediction using only seven local weather variables and no radar, satellite imagery, pressure fields or numerical weather forecast sequences. The model is therefore better interpreted as a practical rainfall-risk signal for irrigation control rather than a complete meteorological forecasting system. In the control context, even a coarse rainfall amount estimate is useful because the controller mainly needs to decide whether irrigation should be blocked when rain is likely.
 
-The notebook evaluation graphs should be included to complement the numerical metrics in Table \ref{tab:model_results}. MAE and RMSE summarize average error, but the plots show whether the model follows the shape of rainfall events, whether errors are biased and whether the model is useful for the control decision of distinguishing rain from no-rain conditions.
-
 \evidencefigure{images/mlp_actual_vs_predicted_error.png}
 {Recommended graph: export the MLP notebook figure containing ``Actual vs Predicted Precipitation'' and ``Prediction Error Distribution''.}
 {MLP actual-versus-predicted rainfall and prediction error distribution. The scatter plot shows how close the model is to the ideal one-to-one line, while the error histogram reveals bias, spread and the frequency of large under-predictions or over-predictions. This is important because irrigation control is sensitive to missed rainfall events and large false rainfall estimates.}
 {fig:mlp_actual_vs_predicted_error}
+
+Figure \ref{fig:mlp_actual_vs_predicted_error} shows that the deployed MLP predicts the many dry or very light-rainfall hours close to zero, which explains the low overall MAE. However, the scatter plot also shows that larger observed rainfall amounts are usually predicted below the ideal one-to-one line. This means the MLP tends to underestimate heavier hourly rainfall events. The error histogram is strongly concentrated near zero, but it has a longer negative tail, confirming that the largest errors are mainly missed or under-predicted rainfall amounts rather than large over-predictions.
 
 \evidencefigure{images/mlp_test_timeline.png}
 {Recommended graph: export the MLP notebook figure titled ``Actual vs Predicted (First 200 hours of Test Set)''.}
 {MLP actual and predicted rainfall over the first 200 hours of the test set. A time-series comparison is useful because rainfall forecasting is sequential in real use; it shows whether the model reacts during wet periods, whether it predicts rain during dry periods and whether peak rainfall amounts are underestimated.}
 {fig:mlp_test_timeline}
 
+Figure \ref{fig:mlp_test_timeline} gives the same result in chronological form. During the first 200 test hours, the MLP follows the general low-rainfall background and responds to some wet periods, but it smooths sharp rainfall peaks. For example, the largest observed spikes are predicted as smaller events. This behaviour is acceptable for a lightweight embedded warning signal, but it shows why the model should not be interpreted as a precise rainfall gauge. For irrigation control, the useful feature is that the predicted line rises during several rainy periods, allowing the controller to delay irrigation when rainfall risk increases.
+
 \evidencefigure{images/mlp_rain_occurrence_confusion_matrix.png}
 {Recommended graph: export the MLP notebook confusion matrix for rain occurrence at the 0.1 mm threshold.}
 {MLP rain-occurrence confusion matrix. This graph translates rainfall amount prediction into a control-oriented question: did the model identify rain or no rain? It is significant for irrigation because false negatives can lead to watering before rainfall, while false positives can unnecessarily block irrigation.}
 {fig:mlp_rain_occurrence_confusion_matrix}
+
+
+Figure \ref{fig:mlp_rain_occurrence_confusion_matrix} evaluates the MLP as a rain/no-rain classifier using the 0.1 mm threshold. The model correctly identifies 11,004 no-rain hours and 3,239 rain hours. It also produces 2,451 false rain alarms and misses 2,593 rain hours. This indicates a balanced but imperfect control signal: false positives may unnecessarily block irrigation, while false negatives may allow watering before rain. Since the firmware blocks irrigation only at a higher predicted rainfall threshold of 1.0 mm, the deployed controller is more conservative than this 0.1 mm diagnostic matrix.
 
 \evidencefigure{images/cnn_actual_vs_predicted_error.png}
 {Recommended graph: export the CNN notebook figure containing ``Actual vs Predicted Precipitation'' and ``Prediction Error Distribution''.}
 {CNN actual-versus-predicted rainfall and prediction error distribution. This figure is useful for comparing the sequence model with the deployed MLP, showing whether the 24-hour input history improves peak rainfall estimation or reduces error spread.}
 {fig:cnn_actual_vs_predicted_error}
 
+Figure \ref{fig:cnn_actual_vs_predicted_error} shows the effect of adding a 24-hour weather sequence to the model input. Compared with the MLP, the CNN predictions spread farther from zero and include larger predicted rainfall values, which helps explain its lower RMSE and higher $R^2$ in Table \ref{tab:model_results}. The CNN still underestimates some heavy rainfall events, but the scatter is less compressed at low predicted rainfall values. The error distribution remains centered near zero, suggesting that the sequence model reduces some amount-prediction error without removing the basic difficulty of hourly rainfall forecasting.
+
 \evidencefigure{images/cnn_test_timeline.png}
 {Recommended graph: export the CNN notebook figure titled ``Actual vs Predicted (First 200 sequences of Test Set)''.}
 {CNN actual and predicted rainfall over the first 200 test sequences. The graph helps evaluate whether temporal context allows the CNN to follow changes in rainfall better than the current-weather MLP, which is important if a future firmware version buffers the previous 24 hours of sensor data.}
 {fig:cnn_test_timeline}
 
+Figure \ref{fig:cnn_test_timeline} shows that the CNN reacts more strongly to changing rainfall conditions than the current-weather MLP. It captures several periods of increased rainfall risk, but it can also overestimate event size, as seen in the large predicted spike around the middle of the plotted sequence. This makes the CNN attractive for future firmware versions where missed rain is more costly than occasional irrigation blocking, but it would require reliable buffering of the previous 24 hours of feature data.
+
 \evidencefigure{images/cnn_rain_occurrence_confusion_matrix.png}
 {Recommended graph: export the CNN notebook confusion matrix for rain occurrence at the 0.1 mm threshold.}
 {CNN rain-occurrence confusion matrix. This graph supports evaluation of the CNN as a future deployment option by showing its rain/no-rain decision behaviour, not only its rainfall amount RMSE and $R^2$.}
 {fig:cnn_rain_occurrence_confusion_matrix}
+
+Figure \ref{fig:cnn_rain_occurrence_confusion_matrix} supports this interpretation. The CNN correctly detects 4,313 rain hours and misses 1,513 rain hours, so it catches more rainy cases than the MLP. The trade-off is that it also predicts rain during 3,481 no-rain hours. In irrigation terms, the CNN is more sensitive to rainfall occurrence, while the MLP is simpler and produces fewer false rain blocks. This comparison justifies selecting the MLP for the implemented ESP32 prototype while identifying the CNN as a possible improvement for later versions with more memory and sequence handling.
 
 \section{Embedded Firmware Results}
 The model deployment pipeline produced a 5,172-byte TensorFlow Lite rainfall model for the MLP. The master firmware uses a 48 KB tensor arena and registers only the fully connected operator required by the deployed network. This is an efficient embedded design because unused TensorFlow Lite Micro operators are not included in the resolver.
@@ -705,8 +706,6 @@ The firmware implements the following functions successfully at source-code leve
 	\item Master node initialization of the TensorFlow Lite Micro interpreter.
 	\item Master node rainfall inference and command transmission every 30 s.
 \end{enumerate}
-
-Serial-monitor screenshots are useful in this project because they show the system operating in real time. The recommended screenshots are the sensor-node output while transmitting weather values, the section-node output while forwarding received packets and driving actuators, and the master-node output while initializing the rainfall model and printing the predicted rainfall amount.
 
 \evidencefigure{images/sensor_serial_output.png}
 {Recommended evidence: a screenshot of the Arduino IDE Serial Monitor or another serial terminal showing the sensor node sending weather packets, including temperature, humidity, vapour pressure deficit, soil temperature, soil moisture, ET$_0$ and shortwave radiation.}

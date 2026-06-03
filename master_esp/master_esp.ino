@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <math.h>
+#include <stddef.h>
 #include <string.h>
 
 #include "tensorflow/lite/micro/micro_interpreter.h"
@@ -92,6 +93,21 @@ typedef struct {
   };
 
 } __attribute__((packed)) farm_packet_t;
+
+static const size_t FARM_PACKET_HEADER_SIZE =
+  offsetof(farm_packet_t, weather);
+
+static const size_t FARM_PACKET_WEATHER_SIZE =
+  FARM_PACKET_HEADER_SIZE +
+  sizeof(weather_payload_t);
+
+static const size_t FARM_PACKET_CONTROL_SIZE =
+  FARM_PACKET_HEADER_SIZE +
+  sizeof(control_payload_t);
+
+static const size_t FARM_PACKET_STATUS_SIZE =
+  FARM_PACKET_HEADER_SIZE +
+  sizeof(status_payload_t);
 
 /* ============================
    SECTION NODE TABLE
@@ -472,6 +488,29 @@ void handle_status_packet(
   Serial.printf("Fertilizer: %s\n", pkt->status.fertilizer_state ? "ON" : "OFF");
 }
 
+bool packet_size_is_valid(
+  msg_type_t type,
+  size_t len
+) {
+  if (len == sizeof(farm_packet_t)) {
+    return true;
+  }
+
+  switch (type) {
+    case MSG_WEATHER_DATA:
+      return len == FARM_PACKET_WEATHER_SIZE;
+
+    case MSG_CONTROL_CMD:
+      return len == FARM_PACKET_CONTROL_SIZE;
+
+    case MSG_STATUS:
+      return len == FARM_PACKET_STATUS_SIZE;
+
+    default:
+      return false;
+  }
+}
+
 /* ============================
    RECEIVE CALLBACK
 ============================ */
@@ -481,13 +520,31 @@ void on_data_recv(
   const uint8_t *incoming_data,
   int len
 ) {
-  if (len != sizeof(farm_packet_t)) {
-    Serial.println("Invalid packet size");
+  if (len < (int)FARM_PACKET_HEADER_SIZE) {
+    Serial.printf(
+      "Invalid packet size: %d bytes, expected at least %u\n",
+      len,
+      (unsigned int)FARM_PACKET_HEADER_SIZE
+    );
     return;
   }
 
-  farm_packet_t pkt;
-  memcpy(&pkt, incoming_data, sizeof(pkt));
+  farm_packet_t pkt = {};
+  size_t copy_len =
+    len < (int)sizeof(pkt) ?
+    (size_t)len :
+    sizeof(pkt);
+
+  memcpy(&pkt, incoming_data, copy_len);
+
+  if (!packet_size_is_valid(pkt.type, (size_t)len)) {
+    Serial.printf(
+      "Invalid packet size: %d bytes for type %d\n",
+      len,
+      (int)pkt.type
+    );
+    return;
+  }
 
   switch (pkt.type) {
     case MSG_WEATHER_DATA:

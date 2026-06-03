@@ -12,12 +12,12 @@
   ],
   "amount_models": {
     "mlp_sensors": {
-      "mae_mm": 0.13626879453659058,
-      "rmse_mm": 0.48418498157532186,
-      "r2": 0.2841808795928955,
+      "mae_mm": 0.13762885332107544,
+      "rmse_mm": 0.49235289685933237,
+      "r2": 0.25982630252838135,
       "rainy_hours_count": 5832,
-      "rainy_mae_mm": 0.3267207145690918,
-      "rainy_rmse_mm": 0.8694191475689651
+      "rainy_mae_mm": 0.3322485387325287,
+      "rainy_rmse_mm": 0.8849207592634926
     }
   },
   "selected_amount_model": "mlp_sensors"
