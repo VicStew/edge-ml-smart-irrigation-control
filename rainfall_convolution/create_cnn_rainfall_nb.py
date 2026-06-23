@@ -29,7 +29,7 @@ nb["cells"] = [
         "np.random.seed(42)\n\n"
         "BASE_DIR = Path.cwd()\n"
         "PROJECT_DIR = BASE_DIR.parent\n"
-        "DATA_PATH = PROJECT_DIR / 'weather_irrigation_hourly' / 'historical_weather_data_hourly.csv'\n"
+        "DATA_PATH = PROJECT_DIR / 'rainfall_mlp' / 'historical_weather_data_hourly.csv'\n"
         "KERAS_MODEL_PATH = BASE_DIR / 'cnn_rainfall_forecaster.keras'\n"
         "TFLITE_MODEL_PATH = BASE_DIR / 'cnn_rainfall_forecaster.tflite'\n"
         "CC_MODEL_PATH = BASE_DIR / 'cnn_rainfall_forecaster.cc'\n"

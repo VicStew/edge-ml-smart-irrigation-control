@@ -1,15 +1,15 @@
 # Rainfall Convolution Model
 
-This folder contains the experimental 1D CNN rainfall forecaster. It trains on the hourly weather dataset from `../weather_irrigation_hourly` and uses a 24-hour sliding window of sensor features to predict rainfall amount.
+This folder contains the experimental 1D CNN rainfall forecaster. It trains on the hourly weather dataset from `../rainfall_mlp` and uses a 24-hour sliding window of sensor features to predict rainfall amount.
 
-The current deployed master firmware uses the simpler hourly MLP model from `../weather_irrigation_hourly`, not this CNN model. Use this folder when comparing model approaches or preparing a future firmware version that can consume sequence input.
+The current deployed master firmware uses the simpler hourly MLP model from `../rainfall_mlp`, not this CNN model. Use this folder when comparing model approaches or preparing a future firmware version that can consume sequence input.
 
 ## Execution Order
 
 1. Build or refresh the shared hourly dataset:
 
    ```sh
-   cd ../weather_irrigation_hourly
+   cd ../rainfall_mlp
    python3 fetch_hourly_weather_data.py
    ```
 
@@ -35,7 +35,7 @@ The current deployed master firmware uses the simpler hourly MLP model from `../
 
 ## Model Flow
 
-1. `train_cnn_model.py` loads `../weather_irrigation_hourly/historical_weather_data_hourly.csv`.
+1. `train_cnn_model.py` loads `../rainfall_mlp/historical_weather_data_hourly.csv`.
 2. It sorts data by time, clips negative rainfall, and drops rows with missing feature or target values.
 3. It scales seven input features using training-set mean and standard deviation.
 4. It creates 24-hour sequences with `TIME_STEPS = 24`.

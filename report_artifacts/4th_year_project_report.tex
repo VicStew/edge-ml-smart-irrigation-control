@@ -101,7 +101,7 @@
 			Department of Physics\\
 			\vspace{1cm}
 
-			\textbf{Design and Implementation of an Edge-AI Weather-Based Smart Irrigation Control System Using ESP32 Microcontrollers}\\
+			\textbf{Edge-AI Weather-Based Smart Irrigation Control System Using Microcontrollers}\\
 			\vspace{1cm}
 			by
 			\vspace{1cm}
@@ -115,7 +115,7 @@
 	A Project Report Submitted in Fulfillment of the Requirements for the award of the Degree of Bachelor of Science in Physics of the University of Nairobi\\
 		\centering
 		\Huge
-		\textbf{May, 2026}
+		\textbf{June, 2026}
 	\end{titlepage}
 
 \setcounter{page}{1}
@@ -149,9 +149,9 @@ Signature ................................ Date................
 
 \chapter*{ABSTRACT}
 \addcontentsline{toc}{chapter}{ABSTRACT}
-Efficient irrigation requires knowledge of both present crop water demand and near-term rainfall conditions. Many low-cost automated irrigation systems rely on fixed thresholds or cloud-connected controllers, which may waste water when rainfall is imminent, fail where internet access is intermittent, or become difficult to scale across independent farm sections. This project designed and implemented a prototype edge-AI smart irrigation control system based on ESP32 microcontrollers, ESP-NOW peer-to-peer communication, and an embedded rainfall forecasting model. Historical hourly weather data for a representative central Kenya farm location at latitude -0.4201 and longitude 36.9476 were obtained from the Open-Meteo historical weather API for the period 1 January 2015 to 31 December 2025. The dataset contained 96,432 hourly records with temperature, relative humidity, derived vapour pressure deficit, soil temperature, soil moisture, shortwave radiation, FAO reference evapotranspiration and precipitation.
+Efficient irrigation is important because water, energy and crop health are easily affected by poor scheduling. Manual irrigation and fixed timers can apply water shortly before rainfall or fail to respond when evaporative demand is high. This project addresses that problem by developing a low-cost smart irrigation prototype that combines local weather sensing, rainfall prediction and automated section-level control.
 
-Two rainfall amount models were developed in Python using TensorFlow: a lightweight multilayer perceptron using current weather features and a 1-D convolutional neural network using 24-hour feature sequences. The multilayer perceptron was selected for firmware deployment because it generated a compact TensorFlow Lite model suitable for TensorFlow Lite Micro on the ESP32 master node. On the held-out chronological test set, the deployed model achieved a mean absolute error of 0.136 mm and a root mean square error of 0.484 mm for hourly rainfall amount prediction. A separate 1-D convolutional experiment achieved a lower root mean square error of 0.415 mm and a higher coefficient of determination, but required sequence input handling and was not integrated into the final firmware. The completed prototype uses sensor nodes to transmit weather observations, including vapour pressure deficit computed from measured temperature and relative humidity, a section node to drive irrigation, pesticide and fertilizer actuators, and a master node to perform local inference and send control commands. Irrigation is inhibited when predicted rainfall exceeds 1.0 mm and is enabled under high evaporative demand conditions using reference evapotranspiration, solar radiation and humidity thresholds. The project demonstrates that a low-cost microcontroller network can combine meteorological sensing, local machine-learning inference and actuator control for weather-aware irrigation without continuous cloud dependence.
+There remains a practical gap between cloud-based intelligent systems and simple local timer systems. Farmers need systems that are affordable, section-aware, weather-aware and able to operate locally. This project responds to that gap by combining local node communication, embedded rainfall inference and ET$_0$-based decision logic in a working prototype architecture.
 
 \cleardoublepage
 \titlecontents{chapter}
@@ -208,7 +208,7 @@ Reference evapotranspiration, ET$_0$, is a standard measure of atmospheric deman
 
 Recent advances in Internet of Things systems have made it possible to collect farm data using inexpensive sensors and microcontrollers. Reviews and platform studies of smart irrigation systems show that low-cost sensors, embedded control, wireless communication and automated decision logic can improve the timeliness of irrigation and reduce water waste when compared with conventional scheduling \citep{garcia2020iot,kamienski2019smart}. However, many systems depend on continuous internet connectivity, remote cloud analytics or manually configured thresholds. These requirements can be a weakness in rural or semi-rural farms where network coverage, power and maintenance capacity may be limited.
 
-This project addresses that challenge by implementing intelligence at the edge. The system uses ESP32 microcontrollers communicating through ESP-NOW, a connectionless peer-to-peer wireless protocol for Espressif devices \citep{espressif2026espnow}. A master ESP32 runs an embedded TensorFlow Lite Micro rainfall model, processes weather data received from field nodes and sends actuator commands to a section controller. TensorFlow Lite Micro is designed for running neural network inference on microcontrollers with restricted memory and processing resources \citep{david2021tensorflow}. This makes it appropriate for a smart irrigation prototype where decisions should continue even without a cloud server.
+This project addresses that challenge by implementing decision-making close to the farm section being controlled. A local controller receives weather information from field nodes, estimates near-term rainfall and sends actuator commands to a section controller. This approach is appropriate for a smart irrigation prototype where decisions should continue even without a cloud server.
 
 \section{Statement of the Problem}
 Small and medium-scale irrigation systems often lack affordable local intelligence. Manual irrigation and timer-based automation do not account for immediate weather conditions or expected rainfall. As a result, irrigation may occur shortly before rainfall, wasting water and energy. Conversely, crops may remain unirrigated during periods of high evaporative demand when human supervision is delayed. Commercial smart controllers may solve some of these problems, but they can be costly, cloud-dependent or poorly adapted to multi-section farm layouts.
@@ -216,25 +216,25 @@ Small and medium-scale irrigation systems often lack affordable local intelligen
 The specific problem addressed in this project is the need for a low-cost, locally controlled irrigation system that can receive weather information from distributed sensor nodes, estimate near-term rainfall using an embedded machine-learning model and issue section-level actuator commands without requiring continuous internet connectivity.
 
 \section{General Objective}
-The overall objective of this project was to design and implement an ESP32-based edge-AI smart irrigation control system that uses local weather information and embedded rainfall forecasting to automate irrigation decisions.
+The overall objective of this project was to design and implement a local weather-aware smart irrigation control system that uses measured environmental conditions and rainfall forecasting to automate irrigation decisions.
 
 \section{Specific Objectives}
 \begin{enumerate}[label=(\roman*)]
 	\item To obtain and preprocess historical hourly weather data suitable for rainfall forecasting and irrigation decision support.
 	\item To develop and evaluate lightweight machine-learning models for hourly rainfall amount prediction.
-	\item To convert the selected model to a TensorFlow Lite Micro-compatible format for deployment on an ESP32 microcontroller.
-	\item To design firmware for sensor, section and master ESP32 nodes communicating through ESP-NOW.
+	\item To prepare the selected model for deployment on a low-power local controller.
+	\item To design distributed firmware roles for sensing, section control and central decision-making.
 	\item To implement a control algorithm that combines predicted rainfall, ET$_0$, shortwave radiation and relative humidity to decide when irrigation should be activated.
 	\item To evaluate the performance, limitations and future improvement areas of the developed prototype.
 \end{enumerate}
 
 \section{Justification and Significance of the Study}
-Agricultural water management requires systems that are not only technically accurate, but also affordable and robust under field conditions. A locally controlled ESP32 system is significant because ESP32 boards are inexpensive, widely available and capable of both wireless communication and embedded computation. By using ESP-NOW, the controller can exchange data among farm nodes without relying on a router or cellular data link. By using TensorFlow Lite Micro, the rainfall model can run directly on the master node.
+Agricultural water management requires systems that are not only technically accurate, but also affordable and robust under field conditions. A locally controlled system is significant because it can exchange data among farm nodes without depending on a continuous internet link and can make irrigation decisions near the point of use. This supports small and medium-scale farms where cost, network coverage and maintenance capacity may limit adoption of commercial smart controllers.
 
 The project contributes to the growing field of precision irrigation by demonstrating a practical integration of weather-based crop water demand, machine-learning rainfall prediction and microcontroller actuation. The work is also relevant to physics because it uses physical environmental variables such as radiation, humidity, temperature and evapotranspiration, and applies modelling, signal processing and embedded instrumentation principles to a real agricultural problem.
 
 \section{Scope of the Study}
-The project focused on a prototype system for section-level irrigation control. The software and firmware were developed for three ESP32 roles: sensor node, section node and master node. Historical weather data from Open-Meteo were used for model training and testing. The deployed rainfall model predicts hourly rainfall amount from current weather variables; it does not yet use live soil moisture sensors, crop coefficients for a specific crop, wind speed, measured flow rate or feedback from an actual field water balance experiment. The actuator outputs include irrigation, pesticide and fertilizer channels, but the main analysis of this report focuses on irrigation control.
+The project focused on a prototype system for section-level irrigation control. The software and firmware were developed around three functional roles: sensor node, section node and master decision node. Historical weather data from Open-Meteo were used for model training and testing. The deployed rainfall model predicts hourly rainfall amount from current weather variables; it does not yet use live soil moisture sensors, crop coefficients for a specific crop, wind speed, measured flow rate or feedback from an actual field water balance experiment. The actuator outputs include irrigation, pesticide and fertilizer channels, but the main analysis of this report focuses on irrigation control.
 
 \chapter{Literature Review}
 
@@ -254,17 +254,14 @@ Rainfall forecasting is difficult because rainfall is intermittent, nonlinear an
 For an embedded irrigation controller, model accuracy must be balanced against memory, computation and simplicity. A dense neural network using current weather variables is easier to deploy than a sequence model because it requires only one feature vector at inference time. A convolutional neural network can capture temporal patterns over previous hours \citep{lecun1998gradient}, but it requires buffering and preprocessing a fixed-length sequence. This project therefore evaluated both a lightweight MLP and a 24-hour 1-D CNN, then selected the MLP for final firmware integration.
 
 \section{Edge AI and Microcontroller Deployment}
-Edge AI refers to running machine-learning inference on local devices rather than sending all data to a remote server. This reduces latency, internet dependency and data transfer requirements. TensorFlow Lite Micro supports neural network inference on microcontrollers by using a small runtime, a static tensor arena and operators selected at compile time \citep{david2021tensorflow}. These design features are important for ESP32-based prototypes where memory is measured in kilobytes rather than gigabytes.
+Edge AI refers to running machine-learning inference on local devices rather than sending all data to a remote server. This reduces latency, internet dependency and data transfer requirements. Microcontroller inference frameworks support neural network deployment by using small runtimes, static memory allocation and operators selected at compile time \citep{david2021tensorflow}. These design features are important for low-power prototypes where memory is measured in kilobytes rather than gigabytes.
 
-Deploying a model on a microcontroller involves more than training accuracy. The model must be converted to a compact inference format, embedded in firmware, supplied with the same feature scaling used during training and tested against memory limits. In this project, the selected rainfall model was exported as a TensorFlow Lite file and converted into C/C++ arrays included by the master ESP32 firmware.
+Deploying a model on a microcontroller involves more than training accuracy. The model must be converted to a compact inference format, embedded in firmware, supplied with the same feature scaling used during training and tested against memory limits. In this project, the selected rainfall model was exported into a compact embedded format and included in the master-node firmware.
 
 \section{Wireless Communication for Farm Nodes}
-Farm nodes require low-cost communication between sensors and controllers. Wi-Fi, LoRa, Zigbee, Bluetooth Low Energy and ESP-NOW are common options. ESP-NOW is useful for small ESP32 networks because it supports direct peer-to-peer communication using MAC addresses and does not require a wireless router \citep{espressif2026espnow}. It is therefore suitable for a prototype where sensor nodes, section nodes and a master controller exchange short structured packets.
+Farm nodes require low-cost communication between sensors and controllers. Wi-Fi, LoRa, Zigbee, Bluetooth Low Energy and proprietary peer-to-peer protocols are common options. Direct peer-to-peer communication is useful for small farm networks because it can exchange short structured packets without requiring a wireless router. It is therefore suitable for a prototype where sensor nodes, section nodes and a master controller communicate locally.
 
-The limitation of ESP-NOW is that network management, peer registration, packet acknowledgement and security must be carefully handled in firmware. Unlike a full IP network, application-level packet formats and routing logic must be designed by the developer. This project implemented a shared packet structure with message types for weather data, control commands, status and acknowledgements.
-
-\section{Identified Knowledge Gap}
-The literature shows many examples of smart irrigation, but there remains a practical gap between cloud-based intelligent systems and simple local timer systems. Farmers need systems that are affordable, section-aware, weather-aware and able to operate locally. This project responds to that gap by combining ESP-NOW communication, embedded rainfall inference and ET$_0$-based decision logic in a working prototype architecture.
+The limitation of direct peer-to-peer communication is that network management, peer registration, packet acknowledgement and security must be carefully handled in firmware. Unlike a full IP network, application-level packet formats and routing logic must be designed by the developer. This project therefore required a shared packet structure with message types for weather data, control commands, status and acknowledgements.
 
 \chapter{Theory}
 
@@ -380,23 +377,39 @@ The project followed a design-build-test approach. First, historical weather dat
 		\node[box] (data) {Open-Meteo\\hourly weather data};
 		\node[box, right=of data] (train) {Python preprocessing\\and model training};
 		\node[box, right=of train] (export) {TFLite conversion\\and C array export};
-		\node[box, below=of export] (master) {Master ESP32\\TFLM inference};
-		\node[box, left=of master] (section) {Section ESP32\\actuator control};
-		\node[box, left=of section] (sensor) {Sensor ESP32\\weather packet source};
 
 		\draw[arrow] (data) -- (train);
 		\draw[arrow] (train) -- (export);
-		\draw[arrow] (export) -- (master);
-		\draw[arrow] (sensor) -- node[above]{ESP-NOW} (section);
-		\draw[arrow] (section) -- node[above]{ESP-NOW} (master);
-		\draw[arrow] (master) -- node[below]{control cmd} (section);
 	\end{tikzpicture}
-	\caption{Overall workflow from weather data acquisition to embedded irrigation control.}
+	\caption{Overall workflow from weather data acquisition to embedded TFLite model conversion.}
 	\label{fig:workflow}
 \end{figure}
 
+\section{Design Choice and Firmware Configuration}
+The prototype used ESP32-family microcontrollers because they provide a practical balance between cost, availability, wireless communication, processing capability and low-power operation. This was important for a farm-oriented prototype where several nodes may be distributed across different sections and where replacing or expanding nodes should remain affordable. The selected boards also support the Arduino-style firmware workflow used in the project, which made rapid prototype testing possible during sensor-packet transmission, actuator switching and model-inference debugging.
+
+The master node was implemented on a Lolin S3 Pro board with an ESP32-S3 microcontroller. This board was selected for the master role because the master has the highest workload: it receives weather packets, caches recent samples, prepares model inputs, runs local rainfall inference and sends control commands. The ESP32-S3 provides more suitable processing headroom and memory for this decision-node function than the smaller nodes, while still remaining within a low-cost microcontroller class.
+
+The sensor and sectional, or section, nodes were implemented with ESP32-C3 devices. These nodes perform simpler repeated tasks, so the lower-cost ESP32-C3 is sufficient. The sensor node constructs weather packets, calculates vapour pressure deficit from temperature and relative humidity, and sends periodic status messages. The section node receives sensor packets, forwards data to the master and switches actuator outputs for irrigation, pesticide and fertilizer control. Assigning the more capable board to the master and the simpler boards to field nodes reduces cost while matching each device to its expected function.
+
+ESP-NOW was chosen for node-to-node communication because the prototype exchanges short structured packets between nearby farm nodes and should not depend on a Wi-Fi router or internet connection during operation. TensorFlow and TensorFlow Lite Micro were chosen for model development and deployment because the same workflow supports training in Python, conversion to a compact embedded inference format and execution on the master microcontroller. The main design constraints were memory, inference time, packet reliability, power consumption and ease of debugging. These constraints favoured a lightweight MLP model over the larger sequence model for the first embedded implementation.
+
+The firmware was configured around timed, observable functions so that each role could be tested quickly through serial output before full system integration. The implemented configuration was:
+\begin{enumerate}[label=(\roman*)]
+	\item Sensor node construction and transmission of weather packets every 5 s.
+	\item Sensor node calculation of vapour pressure deficit from temperature and relative humidity.
+	\item Sensor node heartbeat transmission every 15 s.
+	\item Section node reception of sensor packets and forwarding to the master.
+	\item Section node GPIO actuation for valve, spray and fertilizer outputs.
+	\item Master node reception and caching of weather samples.
+	\item Master node initialization of the TensorFlow Lite Micro interpreter.
+	\item Master node rainfall inference and command transmission every 30 s.
+\end{enumerate}
+
+These intervals and functions were selected for ease of rapid prototype testing rather than final field timing. A 5 s sensor-packet interval makes packet flow visible during development, the 15 s heartbeat confirms that nodes remain active even when weather data are unchanged, and the 30 s master inference interval allows repeated observation of rainfall prediction and command generation without overwhelming the serial monitor or wireless link. In a deployed farm system, these intervals could be increased to reduce power consumption and match the slower time scale of irrigation decisions.
+
 \section{Hardware and Software Materials}
-The main hardware platform was the ESP32 microcontroller. Three firmware roles were implemented:
+The main hardware platform was the ESP32 microcontroller family. Three firmware roles were implemented:
 \begin{enumerate}[label=(\roman*)]
 	\item A sensor node that sends weather packets and heartbeat/status packets.
 	\item A section node that receives weather data from sensor nodes, forwards them to the master and drives actuator pins.
@@ -692,20 +705,11 @@ Figure \ref{fig:cnn_test_timeline} shows that the CNN reacts more strongly to ch
 
 Figure \ref{fig:cnn_rain_occurrence_confusion_matrix} supports this interpretation. The CNN correctly detects 4,313 rain hours and misses 1,513 rain hours, so it catches more rainy cases than the MLP. The trade-off is that it also predicts rain during 3,481 no-rain hours. In irrigation terms, the CNN is more sensitive to rainfall occurrence, while the MLP is simpler and produces fewer false rain blocks. This comparison justifies selecting the MLP for the implemented ESP32 prototype while identifying the CNN as a possible improvement for later versions with more memory and sequence handling.
 
-\section{Embedded Firmware Results}
+\section{Embedded Firmware Testing and Results}
 The model deployment pipeline produced a 5,172-byte TensorFlow Lite rainfall model for the MLP. The master firmware uses a 48 KB tensor arena and registers only the fully connected operator required by the deployed network. This is an efficient embedded design because unused TensorFlow Lite Micro operators are not included in the resolver.
 
-The firmware implements the following functions successfully at source-code level:
-\begin{enumerate}[label=(\roman*)]
-	\item Sensor node construction and transmission of weather packets every 5 s.
-	\item Sensor node calculation of vapour pressure deficit from temperature and relative humidity.
-	\item Sensor node heartbeat transmission every 15 s.
-	\item Section node reception of sensor packets and forwarding to the master.
-	\item Section node GPIO actuation for valve, spray and fertilizer outputs.
-	\item Master node reception and caching of weather samples.
-	\item Master node initialization of the TensorFlow Lite Micro interpreter.
-	\item Master node rainfall inference and command transmission every 30 s.
-\end{enumerate}
+The firmware functions described in the methodology were implemented successfully at source-code level. The serial-terminal evidence below shows the three roles operating as expected: the sensor node packages weather values, the section node forwards data and responds to commands, and the master node initializes the model, predicts rainfall locally and transmits a control packet.
+
 
 \evidencefigure{images/sensor_serial_output.png}
 {Recommended evidence: a screenshot of the Arduino IDE Serial Monitor or another serial terminal showing the sensor node sending weather packets, including temperature, humidity, vapour pressure deficit, soil temperature, soil moisture, ET$_0$ and shortwave radiation.}

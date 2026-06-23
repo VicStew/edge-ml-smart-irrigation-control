@@ -1,0 +1,49 @@
+\begin{thebibliography}{}
+
+\bibitem[\protect\astroncite{Allen \textit{et~al.}}{1998}]{allen1998crop}
+Allen, R.~G., Pereira, L.~S., Raes, D., and Smith, M. (1998).
+\newblock {\em Crop Evapotranspiration: Guidelines for Computing Crop Water Requirements}.
+\newblock FAO Irrigation and Drainage Paper 56. Food and Agriculture Organization of the United Nations, Rome.
+
+\bibitem[\protect\astroncite{David \textit{et~al.}}{2021}]{david2021tensorflow}
+David, R., Duke, J., Jain, A., Reddi, V.~J., Jeffries, N., Li, J., Kreeger, N., Nappier, I., Natraj, M., Wang, T., Warden, P., and Rhodes, R. (2021).
+\newblock {TensorFlow Lite Micro}: Embedded machine learning for tinyml systems.
+\newblock {\em Proceedings of Machine Learning and Systems}, 3:800--811.
+
+\bibitem[\protect\astroncite{Garcia \textit{et~al.}}{2020}]{garcia2020iot}
+Garcia, L., Parra, L., Jimenez, J.~M., Lloret, J., and Lorenz, P. (2020).
+\newblock {IoT}-based smart irrigation systems: An overview on the recent trends on sensors and {IoT} systems for irrigation in precision agriculture.
+\newblock {\em Sensors}, 20(4):1042.
+
+\bibitem[\protect\astroncite{Goodfellow \textit{et~al.}}{2016}]{goodfellow2016deep}
+Goodfellow, I., Bengio, Y., and Courville, A. (2016).
+\newblock {\em Deep Learning}.
+\newblock MIT Press, Cambridge, MA.
+
+\bibitem[\protect\astroncite{Hersbach \textit{et~al.}}{2020}]{hersbach2020era5}
+Hersbach, H. et~al. (2020).
+\newblock The {ERA5} global reanalysis.
+\newblock {\em Quarterly Journal of the Royal Meteorological Society}, 146(730):1999--2049.
+
+\bibitem[\protect\astroncite{Kamienski \textit{et~al.}}{2019}]{kamienski2019smart}
+Kamienski, C., Soininen, J.-P., Taumberger, M., Dantas, R., Toscano, A., Salmon~Cinotti, T., Filev~Maia, R., and Torre~Neto, A. (2019).
+\newblock Smart water management platform: {IoT}-based precision irrigation for agriculture.
+\newblock {\em Sensors}, 19(2):276.
+
+\bibitem[\protect\astroncite{LeCun \textit{et~al.}}{1998}]{lecun1998gradient}
+LeCun, Y., Bottou, L., Bengio, Y., and Haffner, P. (1998).
+\newblock Gradient-based learning applied to document recognition.
+\newblock {\em Proceedings of the IEEE}, 86(11):2278--2324.
+
+\bibitem[\protect\astroncite{Liakos \textit{et~al.}}{2018}]{liakos2018machine}
+Liakos, K.~G., Busato, P., Moshou, D., Pearson, S., and Bochtis, D. (2018).
+\newblock Machine learning in agriculture: A review.
+\newblock {\em Sensors}, 18(8):2674.
+
+\bibitem[\protect\astroncite{{Open-Meteo}}{2026}]{openmeteo2026historical}
+{Open-Meteo} (2026).
+\newblock Historical weather {API}.
+\newblock \url{https://open-meteo.com/en/docs/historical-weather-api}.
+\newblock e0dikced 19 November 2025.
+
+\end{thebibliography}

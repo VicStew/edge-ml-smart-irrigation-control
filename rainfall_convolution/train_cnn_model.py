@@ -24,7 +24,7 @@ PROJECT_DIR = BASE_DIR.parent
 MASTER_ESP_DIR = PROJECT_DIR / "master_esp"
 
 # Reuse historical dataset
-DATA_PATH = PROJECT_DIR / "weather_irrigation_hourly" / "historical_weather_data_hourly.csv"
+DATA_PATH = PROJECT_DIR / "rainfall_mlp" / "historical_weather_data_hourly.csv"
 
 KERAS_MODEL_PATH = BASE_DIR / "cnn_rainfall_forecaster.keras"
 TFLITE_MODEL_PATH = BASE_DIR / "cnn_rainfall_forecaster.tflite"

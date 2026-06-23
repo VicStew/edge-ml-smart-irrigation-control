@@ -4,10 +4,10 @@ This folder contains the firmware for the master ESP32. The master receives weat
 
 ## Execution Order
 
-1. Train or refresh the hourly rainfall model from `../weather_irrigation_hourly`:
+1. Train or refresh the hourly rainfall model from `../rainfall_mlp`:
 
    ```sh
-   cd ../weather_irrigation_hourly
+   cd ../rainfall_mlp
    python3 fetch_hourly_weather_data.py
    python3 train_hourly_rainfall_model.py
    ```

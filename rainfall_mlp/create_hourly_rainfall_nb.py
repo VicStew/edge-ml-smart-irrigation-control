@@ -11,7 +11,7 @@ nb["cells"] = [
     nbf.v4.new_markdown_cell(
         "# TensorFlow Hourly Rainfall Forecasting Using Sensor Data\n\n"
         "This notebook trains an MLP rainfall forecasting model for ESP32 deployment from "
-        "`historical_weather_data_hourly.csv` in the `weather_irrigation_hourly` folder. "
+        "`historical_weather_data_hourly.csv` in the `rainfall_mlp` folder. "
         "The model predicts the rainfall amount (in mm) directly from instantaneous weather sensor readings "
         "(temperature, humidity, vapour pressure deficit, soil temperature, soil moisture, shortwave radiation, and evapotranspiration)."
     ),
