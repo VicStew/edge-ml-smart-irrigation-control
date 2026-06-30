@@ -249,7 +249,7 @@ void handle_control_packet(farm_packet_t *pkt) {
   Serial.printf("Fertilizer: %s\n", fertilizer_state ? "ON" : "OFF");
 
   if (valve_state) {
-    delay(pkt->control.irrigation_duration_sec * 1000);
+    pkt->control.irrigation_duration_sec * 1000;
 
     valve_state = false;
     digitalWrite(VALVE_PIN, LOW);
