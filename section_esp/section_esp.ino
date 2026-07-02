@@ -100,12 +100,16 @@ typedef struct {
 bool valve_state = false;
 bool spray_state = false;
 bool fertilizer_state = false;
+bool valve_timer_active = false;
+unsigned long valve_off_time = 0;
 
 unsigned long last_status_time = 0;
 uint32_t packet_counter = 0;
 
 uint8_t sensor_peers[MAX_SENSOR_PEERS][6];
 uint8_t sensor_peer_count = 0;
+
+void send_status();
 
 /* ============================
    HELPERS
@@ -163,6 +167,28 @@ void remember_sensor_peer(
   memcpy(sensor_peers[sensor_peer_count], mac, 6);
   sensor_peer_count++;
   add_peer_if_needed(mac);
+}
+
+void set_valve_state(
+  bool enabled
+) {
+  valve_state = enabled;
+  digitalWrite(VALVE_PIN, valve_state ? HIGH : LOW);
+
+  if (!valve_state) {
+    valve_timer_active = false;
+  }
+}
+
+void update_timed_outputs() {
+  if (
+    valve_timer_active &&
+    (long)(millis() - valve_off_time) >= 0
+  ) {
+    set_valve_state(false);
+    Serial.println("Timed irrigation cycle complete");
+    send_status();
+  }
 }
 
 /* ============================
@@ -236,11 +262,21 @@ void handle_weather_packet(
 void handle_control_packet(farm_packet_t *pkt) {
   Serial.println("Control packet received");
 
-  valve_state = pkt->control.irrigate;
   spray_state = pkt->control.spray_pesticide;
   fertilizer_state = pkt->control.apply_fertilizer;
 
-  digitalWrite(VALVE_PIN, valve_state ? HIGH : LOW);
+  set_valve_state(pkt->control.irrigate);
+
+  if (
+    valve_state &&
+    pkt->control.irrigation_duration_sec > 0
+  ) {
+    valve_timer_active = true;
+    valve_off_time =
+      millis() +
+      ((unsigned long)pkt->control.irrigation_duration_sec * 1000UL);
+  }
+
   digitalWrite(SPRAY_PIN, spray_state ? HIGH : LOW);
   digitalWrite(FERTILIZER_PIN, fertilizer_state ? HIGH : LOW);
 
@@ -249,12 +285,10 @@ void handle_control_packet(farm_packet_t *pkt) {
   Serial.printf("Fertilizer: %s\n", fertilizer_state ? "ON" : "OFF");
 
   if (valve_state) {
-    pkt->control.irrigation_duration_sec * 1000;
-
-    valve_state = false;
-    digitalWrite(VALVE_PIN, LOW);
-
-    Serial.println("Irrigation cycle complete");
+    Serial.printf(
+      "Irrigation duration: %u sec\n",
+      pkt->control.irrigation_duration_sec
+    );
   }
 
   send_status();
@@ -382,6 +416,8 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
+
+  update_timed_outputs();
 
   if (now - last_status_time > STATUS_INTERVAL_MS) {
     send_status();

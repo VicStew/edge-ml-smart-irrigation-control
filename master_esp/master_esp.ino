@@ -4,6 +4,13 @@
 #include <stddef.h>
 #include <string.h>
 
+#define TINY_GSM_MODEM_SIM800
+#define SerialAT Serial1
+
+#include <ArduinoJson.h>
+#include <TinyGsmClient.h>
+#include <PubSubClient.h>
+
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
@@ -24,6 +31,31 @@
 #define MAX_SENSOR_NODES 32
 #define WEATHER_HISTORY_LENGTH 24
 #define TENSOR_ARENA_SIZE (48 * 1024)
+
+#define SIM800_RX_PIN 16
+#define SIM800_TX_PIN 17
+#define SIM800_BAUD 9600
+
+#define THINGSBOARD_PORT 1883
+#define MQTT_BUFFER_SIZE 768
+#define TELEMETRY_QUEUE_LENGTH 8
+#define TELEMETRY_PAYLOAD_SIZE 512
+#define GSM_RECONNECT_INTERVAL_MS 30000
+#define MQTT_RECONNECT_INTERVAL_MS 10000
+
+// Useful if a GPS Module is integrated
+// const char GSM_PIN[] = "";
+// const char GPRS_APN[] = "internet";
+// const char GPRS_USER[] = "";
+// const char GPRS_PASS[] = "";
+
+const char THINGSBOARD_SERVER[] = "mqtt.eu.thingsboard.cloud";
+const char THINGSBOARD_TOKEN[] = "76uO5U0HGmm9inOyHs8w";
+const char THINGSBOARD_CLIENT_ID[] = "qp6q17c71aeuosv98ygp";
+
+const char TB_TELEMETRY_TOPIC[] = "v1/devices/me/telemetry";
+const char TB_ATTRIBUTES_TOPIC[] = "v1/devices/me/attributes";
+const char TB_ATTRIBUTES_RESPONSE_TOPIC[] = "v1/devices/me/attributes/response/+";
 
 /* ============================
    MESSAGE TYPES
@@ -120,6 +152,13 @@ typedef struct {
 
 section_node_t sections[MAX_SECTIONS];
 
+typedef struct {
+  bool active;
+  control_payload_t control;
+} manual_control_t;
+
+manual_control_t manual_controls[MAX_SECTIONS];
+
 /* ============================
    WEATHER HISTORY
 ============================ */
@@ -144,6 +183,30 @@ rainfall_forecast_t latest_rainfall_forecast = {
   false,
   0
 };
+
+/* ============================
+   THINGSBOARD STATE
+============================ */
+
+TinyGsm modem(SerialAT);
+TinyGsmClient gsm_client(modem);
+PubSubClient mqtt(gsm_client);
+
+typedef struct {
+  bool pending;
+  char payload[TELEMETRY_PAYLOAD_SIZE];
+} telemetry_message_t;
+
+telemetry_message_t telemetry_queue[TELEMETRY_QUEUE_LENGTH];
+uint8_t telemetry_queue_head = 0;
+uint8_t telemetry_queue_tail = 0;
+uint8_t telemetry_queue_count = 0;
+
+bool modem_ready = false;
+bool mqtt_subscribed = false;
+uint32_t last_gsm_reconnect_attempt = 0;
+uint32_t last_mqtt_reconnect_attempt = 0;
+uint32_t shared_attribute_request_id = 1;
 
 /* ============================
    AI MODEL STATE
@@ -211,6 +274,90 @@ void add_section_peer(
   } else {
     Serial.println("Failed to add section peer");
   }
+}
+
+bool enqueue_telemetry(
+  const char *payload
+) {
+  if (telemetry_queue_count >= TELEMETRY_QUEUE_LENGTH) {
+    Serial.println("Telemetry queue full");
+    return false;
+  }
+
+  telemetry_message_t *message =
+    &telemetry_queue[telemetry_queue_tail];
+
+  strncpy(
+    message->payload,
+    payload,
+    TELEMETRY_PAYLOAD_SIZE - 1
+  );
+  message->payload[TELEMETRY_PAYLOAD_SIZE - 1] = '\0';
+  message->pending = true;
+
+  telemetry_queue_tail =
+    (telemetry_queue_tail + 1) %
+    TELEMETRY_QUEUE_LENGTH;
+  telemetry_queue_count++;
+
+  return true;
+}
+
+void queue_weather_telemetry(
+  const farm_packet_t *pkt
+) {
+  StaticJsonDocument<TELEMETRY_PAYLOAD_SIZE> doc;
+
+  doc["section_id"] = pkt->section_id;
+  doc["node_id"] = pkt->node_id;
+  doc["sample_time"] = pkt->weather.sample_time;
+  doc["temperature_2m"] = pkt->weather.temperature_2m;
+  doc["relative_humidity_2m"] = pkt->weather.relative_humidity_2m;
+  doc["vapour_pressure_deficit_kpa"] =
+    pkt->weather.vapour_pressure_deficit_kpa;
+  doc["soil_temperature_0_to_7cm"] =
+    pkt->weather.soil_temperature_0_to_7cm;
+  doc["soil_moisture_0_to_7cm"] =
+    pkt->weather.soil_moisture_0_to_7cm;
+  doc["et0_fao_evapotranspiration"] =
+    pkt->weather.et0_fao_evapotranspiration;
+  doc["shortwave_radiation"] =
+    pkt->weather.shortwave_radiation;
+
+  char payload[TELEMETRY_PAYLOAD_SIZE];
+  size_t length =
+    serializeJson(doc, payload, sizeof(payload));
+
+  if (length == 0 || length >= sizeof(payload)) {
+    Serial.println("Weather telemetry payload too large");
+    return;
+  }
+
+  if (enqueue_telemetry(payload)) {
+    Serial.println("Weather telemetry queued");
+  }
+}
+
+void queue_section_status_telemetry(
+  const farm_packet_t *pkt
+) {
+  StaticJsonDocument<256> doc;
+
+  doc["section_id"] = pkt->section_id;
+  doc["valve_state"] = pkt->status.valve_state;
+  doc["spray_state"] = pkt->status.spray_state;
+  doc["fertilizer_state"] = pkt->status.fertilizer_state;
+
+  char payload[256];
+  size_t length =
+    serializeJson(doc, payload, sizeof(payload));
+
+  if (length == 0 || length >= sizeof(payload)) {
+    Serial.println("Status telemetry payload too large");
+    return;
+  }
+
+  enqueue_telemetry(payload);
 }
 
 void weather_to_features(
@@ -419,6 +566,442 @@ void send_control_packet(
   );
 }
 
+bool json_has_key(
+  JsonObjectConst object,
+  const char *key
+) {
+  return !object[key].isNull();
+}
+
+bool json_bool_value(
+  JsonVariantConst value,
+  bool fallback
+) {
+  if (value.is<bool>()) {
+    return value.as<bool>();
+  }
+
+  if (value.is<int>()) {
+    return value.as<int>() != 0;
+  }
+
+  if (value.is<const char*>()) {
+    const char *text = value.as<const char*>();
+
+    return (
+      strcmp(text, "true") == 0 ||
+      strcmp(text, "1") == 0 ||
+      strcmp(text, "on") == 0 ||
+      strcmp(text, "ON") == 0
+    );
+  }
+
+  return fallback;
+}
+
+bool json_bool_key(
+  JsonObjectConst object,
+  const char *key,
+  bool fallback
+) {
+  if (!json_has_key(object, key)) {
+    return fallback;
+  }
+
+  return json_bool_value(object[key], fallback);
+}
+
+int json_int_key(
+  JsonObjectConst object,
+  const char *key,
+  int fallback
+) {
+  if (!json_has_key(object, key)) {
+    return fallback;
+  }
+
+  return object[key].as<int>();
+}
+
+bool extract_manual_control(
+  JsonObjectConst object,
+  uint8_t *section_id,
+  bool *manual_enabled,
+  control_payload_t *control
+) {
+  int section =
+    json_int_key(
+      object,
+      "section_id",
+      json_int_key(
+        object,
+        "target_section_id",
+        json_int_key(object, "section", -1)
+      )
+    );
+
+  if (section < 0 || section >= MAX_SECTIONS) {
+    Serial.println("Manual control missing valid section_id");
+    return false;
+  }
+
+  *section_id = (uint8_t)section;
+  *manual_enabled =
+    json_bool_key(
+      object,
+      "enabled",
+      json_bool_key(object, "manual", true)
+    );
+
+  control->irrigate =
+    json_bool_key(
+      object,
+      "irrigate",
+      json_bool_key(object, "valve", false)
+    );
+  control->spray_pesticide =
+    json_bool_key(object, "spray_pesticide", false);
+  control->apply_fertilizer =
+    json_bool_key(object, "apply_fertilizer", false);
+
+  int duration =
+    json_int_key(
+      object,
+      "irrigation_duration_sec",
+      json_int_key(object, "duration_sec", 0)
+    );
+
+  control->irrigation_duration_sec =
+    duration > 0 ? (uint16_t)duration : 0;
+
+  return true;
+}
+
+void publish_manual_control_result(
+  uint8_t section_id,
+  bool manual_enabled,
+  bool forwarded
+) {
+  StaticJsonDocument<192> doc;
+
+  doc["manual_control_section_id"] = section_id;
+  doc["manual_control_enabled"] = manual_enabled;
+  doc["manual_control_forwarded"] = forwarded;
+
+  char payload[192];
+  size_t length =
+    serializeJson(doc, payload, sizeof(payload));
+
+  if (length > 0 && length < sizeof(payload)) {
+    enqueue_telemetry(payload);
+  }
+}
+
+bool forward_manual_control(
+  uint8_t section_id,
+  bool manual_enabled,
+  control_payload_t control
+) {
+  if (section_id >= MAX_SECTIONS) {
+    return false;
+  }
+
+  if (manual_enabled) {
+    manual_controls[section_id].active = true;
+    manual_controls[section_id].control = control;
+  } else {
+    manual_controls[section_id].active = false;
+
+    control.irrigate = false;
+    control.spray_pesticide = false;
+    control.apply_fertilizer = false;
+    control.irrigation_duration_sec = 0;
+  }
+
+  if (!sections[section_id].active) {
+    Serial.printf(
+      "Section %d is not discovered yet\n",
+      section_id
+    );
+    return false;
+  }
+
+  send_control_packet(
+    sections[section_id].mac,
+    section_id,
+    control
+  );
+
+  return true;
+}
+
+void process_manual_control_object(
+  JsonObjectConst object
+) {
+  uint8_t section_id = 0;
+  bool manual_enabled = true;
+  control_payload_t control = {};
+
+  if (
+    !extract_manual_control(
+      object,
+      &section_id,
+      &manual_enabled,
+      &control
+    )
+  ) {
+    return;
+  }
+
+  bool forwarded =
+    forward_manual_control(
+      section_id,
+      manual_enabled,
+      control
+    );
+
+  publish_manual_control_result(
+    section_id,
+    manual_enabled,
+    forwarded
+  );
+
+  Serial.printf(
+    "Manual control section %d %s\n",
+    section_id,
+    forwarded ? "forwarded" : "queued as override"
+  );
+}
+
+void process_shared_attributes(
+  JsonObjectConst attributes
+) {
+  JsonVariantConst snake_case_control =
+    attributes["manual_control"];
+  JsonVariantConst camel_case_control =
+    attributes["manualControl"];
+
+  if (snake_case_control.is<JsonObjectConst>()) {
+    process_manual_control_object(
+      snake_case_control.as<JsonObjectConst>()
+    );
+    return;
+  }
+
+  if (camel_case_control.is<JsonObjectConst>()) {
+    process_manual_control_object(
+      camel_case_control.as<JsonObjectConst>()
+    );
+    return;
+  }
+
+  if (
+    json_has_key(attributes, "section_id") ||
+    json_has_key(attributes, "target_section_id") ||
+    json_has_key(attributes, "section")
+  ) {
+    process_manual_control_object(attributes);
+  }
+}
+
+void mqtt_callback(
+  char *topic,
+  byte *payload,
+  unsigned int length
+) {
+  Serial.print("ThingsBoard message [");
+  Serial.print(topic);
+  Serial.println("]");
+
+  StaticJsonDocument<MQTT_BUFFER_SIZE> doc;
+  DeserializationError error =
+    deserializeJson(doc, payload, length);
+
+  if (error) {
+    Serial.println("Failed to parse ThingsBoard attributes");
+    return;
+  }
+
+  JsonObjectConst root = doc.as<JsonObjectConst>();
+
+  if (root["shared"].is<JsonObjectConst>()) {
+    process_shared_attributes(
+      root["shared"].as<JsonObjectConst>()
+    );
+    return;
+  }
+
+  process_shared_attributes(root);
+}
+
+bool connect_gprs() {
+  if (GSM_PIN[0] != '\0' && modem.getSimStatus() != 3) {
+    modem.simUnlock(GSM_PIN);
+  }
+
+  if (!modem.isNetworkConnected()) {
+    Serial.println("Waiting for GSM network...");
+
+    if (!modem.waitForNetwork(60000L, true)) {
+      Serial.println("GSM network unavailable");
+      return false;
+    }
+  }
+
+  if (!modem.isGprsConnected()) {
+    Serial.print("Connecting GPRS APN ");
+    Serial.println(GPRS_APN);
+
+    if (!modem.gprsConnect(GPRS_APN, GPRS_USER, GPRS_PASS)) {
+      Serial.println("GPRS connect failed");
+      return false;
+    }
+  }
+
+  return true;
+}
+
+void request_shared_attributes() {
+  char topic[64];
+  snprintf(
+    topic,
+    sizeof(topic),
+    "v1/devices/me/attributes/request/%lu",
+    (unsigned long)shared_attribute_request_id++
+  );
+
+  const char request[] =
+    "{\"sharedKeys\":\"manual_control,manualControl,"
+    "section_id,target_section_id,section,enabled,manual,"
+    "irrigate,valve,spray_pesticide,apply_fertilizer,"
+    "irrigation_duration_sec,duration_sec\"}";
+
+  mqtt.publish(topic, request);
+}
+
+bool connect_thingsboard() {
+  if (!connect_gprs()) {
+    return false;
+  }
+
+  Serial.print("Connecting ThingsBoard MQTT: ");
+  Serial.println(THINGSBOARD_SERVER);
+
+  bool connected =
+    mqtt.connect(
+      THINGSBOARD_CLIENT_ID,
+      THINGSBOARD_TOKEN,
+      ""
+    );
+
+  if (!connected) {
+    Serial.printf(
+      "ThingsBoard MQTT failed, state=%d\n",
+      mqtt.state()
+    );
+    mqtt_subscribed = false;
+    return false;
+  }
+
+  mqtt.subscribe(TB_ATTRIBUTES_TOPIC);
+  mqtt.subscribe(TB_ATTRIBUTES_RESPONSE_TOPIC);
+  request_shared_attributes();
+
+  mqtt_subscribed = true;
+  Serial.println("ThingsBoard MQTT connected");
+  return true;
+}
+
+void init_gsm_modem() {
+  SerialAT.begin(
+    SIM800_BAUD,
+    SERIAL_8N1,
+    SIM800_RX_PIN,
+    SIM800_TX_PIN
+  );
+
+  delay(3000);
+
+  Serial.println("Initializing SIM800L modem...");
+
+  if (!modem.restart()) {
+    Serial.println("SIM800L restart failed, trying init");
+
+    if (!modem.init()) {
+      Serial.println("SIM800L init failed");
+      modem_ready = false;
+      return;
+    }
+  }
+
+  Serial.print("Modem: ");
+  Serial.println(modem.getModemInfo());
+
+  modem_ready = true;
+}
+
+void maintain_thingsboard() {
+  if (!modem_ready) {
+    unsigned long now = millis();
+
+    if (
+      now - last_gsm_reconnect_attempt >=
+      GSM_RECONNECT_INTERVAL_MS
+    ) {
+      last_gsm_reconnect_attempt = now;
+      init_gsm_modem();
+    }
+
+    return;
+  }
+
+  if (mqtt.connected()) {
+    mqtt.loop();
+    return;
+  }
+
+  unsigned long now = millis();
+
+  if (
+    now - last_mqtt_reconnect_attempt <
+    MQTT_RECONNECT_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  last_mqtt_reconnect_attempt = now;
+  connect_thingsboard();
+}
+
+void publish_queued_telemetry() {
+  if (!mqtt.connected()) {
+    return;
+  }
+
+  while (telemetry_queue_count > 0) {
+    telemetry_message_t *message =
+      &telemetry_queue[telemetry_queue_head];
+
+    if (
+      !mqtt.publish(
+        TB_TELEMETRY_TOPIC,
+        message->payload
+      )
+    ) {
+      Serial.println("Telemetry publish failed");
+      return;
+    }
+
+    message->pending = false;
+    telemetry_queue_head =
+      (telemetry_queue_head + 1) %
+      TELEMETRY_QUEUE_LENGTH;
+    telemetry_queue_count--;
+
+    Serial.println("Telemetry published to ThingsBoard");
+  }
+}
+
 /* ============================
    HANDLE WEATHER PACKET
 ============================ */
@@ -473,6 +1056,8 @@ void handle_weather_packet(
   Serial.printf("soil_moisture_0_to_7cm: %.3f\n", pkt->weather.soil_moisture_0_to_7cm);
   Serial.printf("et0_fao_evapotranspiration: %.3f\n", pkt->weather.et0_fao_evapotranspiration);
   Serial.printf("shortwave_radiation: %.2f\n", pkt->weather.shortwave_radiation);
+
+  queue_weather_telemetry(pkt);
 }
 
 /* ============================
@@ -486,6 +1071,8 @@ void handle_status_packet(
   Serial.printf("Valve: %s\n", pkt->status.valve_state ? "ON" : "OFF");
   Serial.printf("Spray: %s\n", pkt->status.spray_state ? "ON" : "OFF");
   Serial.printf("Fertilizer: %s\n", pkt->status.fertilizer_state ? "ON" : "OFF");
+
+  queue_section_status_telemetry(pkt);
 }
 
 bool packet_size_is_valid(
@@ -620,10 +1207,20 @@ void process_control_cycle() {
       continue;
     }
 
-    control_payload_t control =
-      run_ai_model(
-        weather_cache[i].latest
+    control_payload_t control;
+
+    if (manual_controls[section_id].active) {
+      control = manual_controls[section_id].control;
+      Serial.printf(
+        "Using manual override for section %d\n",
+        section_id
       );
+    } else {
+      control =
+        run_ai_model(
+          weather_cache[i].latest
+        );
+    }
 
     uint8_t section_mac[6];
 
@@ -650,10 +1247,18 @@ void setup() {
 
   init_rainfall_model();
 
+  mqtt.setServer(
+    THINGSBOARD_SERVER,
+    THINGSBOARD_PORT
+  );
+  mqtt.setCallback(mqtt_callback);
+  mqtt.setBufferSize(MQTT_BUFFER_SIZE, MQTT_BUFFER_SIZE);
+
   WiFi.mode(WIFI_STA);
   WiFi.setChannel(WIFI_CHANNEL);
 
   init_espnow();
+  init_gsm_modem();
 
   Serial.println("Master Online");
 }
@@ -669,4 +1274,7 @@ void loop() {
     process_control_cycle();
     last_control_cycle = now;
   }
+
+  maintain_thingsboard();
+  publish_queued_telemetry();
 }
