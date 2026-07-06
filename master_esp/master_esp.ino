@@ -44,14 +44,13 @@
 #define MQTT_RECONNECT_INTERVAL_MS 10000
 
 // Useful if a GPS Module is integrated
-// const char GSM_PIN[] = "";
-// const char GPRS_APN[] = "internet";
-// const char GPRS_USER[] = "";
-// const char GPRS_PASS[] = "";
+const char GSM_PIN[] = "";
+const char GPRS_APN[] = "internet";
+const char GPRS_USER[] = "";
+const char GPRS_PASS[] = "";
 
 const char THINGSBOARD_SERVER[] = "mqtt.eu.thingsboard.cloud";
-const char THINGSBOARD_TOKEN[] = "76uO5U0HGmm9inOyHs8w";
-const char THINGSBOARD_CLIENT_ID[] = "qp6q17c71aeuosv98ygp";
+const char THINGSBOARD_CLIENT_ID[] = "";
 
 const char TB_TELEMETRY_TOPIC[] = "v1/devices/me/telemetry";
 const char TB_ATTRIBUTES_TOPIC[] = "v1/devices/me/attributes";
@@ -889,9 +888,7 @@ bool connect_thingsboard() {
 
   bool connected =
     mqtt.connect(
-      THINGSBOARD_CLIENT_ID,
-      THINGSBOARD_TOKEN,
-      ""
+      THINGSBOARD_CLIENT_ID
     );
 
   if (!connected) {
