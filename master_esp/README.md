@@ -29,21 +29,25 @@ This folder contains the firmware for the master ESP32. The master receives weat
 
 5. Update the ThingsBoard and SIM800L settings in `master_esp.ino`:
 
-   - `THINGSBOARD_TOKEN`
+   - `MASTER_THINGSBOARD_TOKEN`
+   - `MASTER_THINGSBOARD_CLIENT_ID`
+   - `THINGSBOARD_ROUTES`
    - `THINGSBOARD_SERVER`
    - `GPRS_APN`, `GPRS_USER`, and `GPRS_PASS`
    - `SIM800_RX_PIN`, `SIM800_TX_PIN`, and `SIM800_BAUD`
 
-6. Flash this sketch to the master ESP32.
+6. Update each node sketch so its `*_NODE_CLIENT_ID` matches one entry in the master's `THINGSBOARD_ROUTES`.
 
-7. Power the section nodes and sensor nodes. The master discovers section MAC addresses when weather packets arrive through the section nodes.
+7. Flash this sketch to the master ESP32.
+
+8. Power the section nodes and sensor nodes. The master discovers section MAC addresses when weather packets arrive through the section nodes.
 
 ## Runtime Flow
 
 1. `setup()` initializes serial output, the rainfall model, ThingsBoard MQTT settings, WiFi station mode, ESP-NOW, and the SIM800L modem.
 2. Section ESP32 nodes forward sensor weather packets to the master.
 3. `handle_weather_packet()` stores the latest weather reading, registers the sending section as an ESP-NOW peer, and queues telemetry for ThingsBoard.
-4. `loop()` maintains the GSM/GPRS and ThingsBoard MQTT connection, publishes queued telemetry, and receives shared-attribute updates.
+4. `loop()` maintains the GSM/GPRS and master ThingsBoard MQTT connection, publishes queued telemetry to each routed device token, and receives shared-attribute updates on the master device only.
 5. Shared attribute updates can enable manual section control. Manual control overrides the automatic AI command for that section until it is disabled.
 6. Every `CONTROL_INTERVAL_MS`, `process_control_cycle()` evaluates each known sensor node.
 7. `run_ai_model()` normalizes weather features, runs the rainfall model, and decides whether irrigation should run.
@@ -51,10 +55,11 @@ This folder contains the firmware for the master ESP32. The master receives weat
 
 ## ThingsBoard Telemetry
 
-The master publishes each received sensor reading to `v1/devices/me/telemetry` using the configured device token. Telemetry keys include:
+The master publishes each received sensor reading to `v1/devices/me/telemetry` using the ThingsBoard route matched by the packet's `device_client_id`. Telemetry keys include:
 
 - `section_id`
 - `node_id`
+- `device_client_id`
 - `sample_time`
 - `temperature_2m`
 - `relative_humidity_2m`
@@ -65,6 +70,29 @@ The master publishes each received sensor reading to `v1/devices/me/telemetry` u
 - `shortwave_radiation`
 
 Section status packets are also published with `valve_state`, `spray_state`, and `fertilizer_state`.
+
+## ThingsBoard Routing
+
+Each sensor and section packet includes a fixed `device_client_id`. The master uses that value to find the matching `THINGSBOARD_ROUTES` entry, then reconnects MQTT with that route's ThingsBoard client ID and token before publishing telemetry. Add one route per ThingsBoard device:
+
+```cpp
+const thingsboard_route_t THINGSBOARD_ROUTES[] = {
+  {
+    "sensor-1",
+    "sensor-1-mqtt-client",
+    "PUT_SENSOR_1_ACCESS_TOKEN_HERE",
+    false
+  },
+  {
+    "section-1",
+    "section-1-mqtt-client",
+    "PUT_SECTION_1_ACCESS_TOKEN_HERE",
+    false
+  }
+};
+```
+
+Only `MASTER_THINGSBOARD_ROUTE` has `subscribe_for_commands` set to `true`. Control commands must be sent to the master device in ThingsBoard; the master then forwards the command to the target section over ESP-NOW.
 
 ## ThingsBoard Manual Control
 
@@ -93,6 +121,8 @@ Set `enabled` to `false` for the section to release manual override and switch t
 ## Configuration Notes
 
 - Keep `WIFI_CHANNEL` identical across `master_esp`, `section_esp`, and `sensor_esp`.
+- Keep `DEVICE_CLIENT_ID_LENGTH` identical across `master_esp`, `section_esp`, and `sensor_esp`.
+- Keep each node's `SENSOR_NODE_CLIENT_ID` or `SECTION_NODE_CLIENT_ID` identical to the matching route in `master_esp.ino`.
 - Wire the SIM800L to the master only. The default firmware uses ESP32 `Serial1` on `SIM800_RX_PIN` 16 and `SIM800_TX_PIN` 17.
 - `RAIN_AMOUNT_BLOCK_THRESHOLD_MM` controls how much forecast rain blocks irrigation.
 - `MIN_IRRIGATION_DURATION_SEC` and `MAX_IRRIGATION_DURATION_SEC` bound the irrigation time chosen by the decision engine.

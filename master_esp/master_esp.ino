@@ -40,21 +40,58 @@
 #define MQTT_BUFFER_SIZE 768
 #define TELEMETRY_QUEUE_LENGTH 8
 #define TELEMETRY_PAYLOAD_SIZE 512
+#define DEVICE_CLIENT_ID_LENGTH 40
+#define THINGSBOARD_CREDENTIAL_LENGTH 48
 #define GSM_RECONNECT_INTERVAL_MS 30000
 #define MQTT_RECONNECT_INTERVAL_MS 10000
 
-// Useful if a GPS Module is integrated
 const char GSM_PIN[] = "";
 const char GPRS_APN[] = "internet";
 const char GPRS_USER[] = "";
 const char GPRS_PASS[] = "";
 
 const char THINGSBOARD_SERVER[] = "mqtt.eu.thingsboard.cloud";
-const char THINGSBOARD_CLIENT_ID[] = "";
+const char MASTER_NODE_CLIENT_ID[] = "h0kqq9jqtrpufa6fxk9g";
+const char MASTER_THINGSBOARD_CLIENT_ID[] = "h0kqq9jqtrpufa6fxk9g";
+
+const char SENSOR_1_NODE_CLIENT_ID[] = "sensor-1";
+const char SENSOR_1_THINGSBOARD_CLIENT_ID[] = "sensor-1-mqtt-client";
+
+const char SECTION_1_NODE_CLIENT_ID[] = "section-1";
+const char SECTION_1_THINGSBOARD_CLIENT_ID[] = "section-1-mqtt-client";
 
 const char TB_TELEMETRY_TOPIC[] = "v1/devices/me/telemetry";
 const char TB_ATTRIBUTES_TOPIC[] = "v1/devices/me/attributes";
 const char TB_ATTRIBUTES_RESPONSE_TOPIC[] = "v1/devices/me/attributes/response/+";
+
+typedef struct {
+  const char *node_client_id;
+  const char *thingsboard_client_id;
+  bool subscribe_for_commands;
+} thingsboard_route_t;
+
+const thingsboard_route_t MASTER_THINGSBOARD_ROUTE = {
+  MASTER_NODE_CLIENT_ID,
+  MASTER_THINGSBOARD_CLIENT_ID,
+  true
+};
+
+const thingsboard_route_t THINGSBOARD_ROUTES[] = {
+  {
+    SENSOR_1_NODE_CLIENT_ID,
+    SENSOR_1_THINGSBOARD_CLIENT_ID,
+    false
+  },
+  {
+    SECTION_1_NODE_CLIENT_ID,
+    SECTION_1_THINGSBOARD_CLIENT_ID,
+    false
+  }
+};
+
+const size_t THINGSBOARD_ROUTE_COUNT =
+  sizeof(THINGSBOARD_ROUTES) /
+  sizeof(THINGSBOARD_ROUTES[0]);
 
 /* ============================
    MESSAGE TYPES
@@ -113,6 +150,7 @@ typedef struct {
 
   uint8_t section_id;
   uint8_t node_id;
+  char device_client_id[DEVICE_CLIENT_ID_LENGTH];
 
   uint32_t sequence;
   msg_type_t type;
@@ -193,6 +231,8 @@ PubSubClient mqtt(gsm_client);
 
 typedef struct {
   bool pending;
+  char node_client_id[DEVICE_CLIENT_ID_LENGTH];
+  char thingsboard_client_id[THINGSBOARD_CREDENTIAL_LENGTH];
   char payload[TELEMETRY_PAYLOAD_SIZE];
 } telemetry_message_t;
 
@@ -206,6 +246,7 @@ bool mqtt_subscribed = false;
 uint32_t last_gsm_reconnect_attempt = 0;
 uint32_t last_mqtt_reconnect_attempt = 0;
 uint32_t shared_attribute_request_id = 1;
+char active_thingsboard_node_client_id[DEVICE_CLIENT_ID_LENGTH] = "";
 
 /* ============================
    AI MODEL STATE
@@ -237,6 +278,63 @@ void print_mac(const uint8_t *mac) {
     mac[0], mac[1], mac[2],
     mac[3], mac[4], mac[5]
   );
+}
+
+void copy_text(
+  char *destination,
+  size_t destination_size,
+  const char *source
+) {
+  if (destination_size == 0) {
+    return;
+  }
+
+  if (!source) {
+    source = "";
+  }
+
+  strncpy(
+    destination,
+    source,
+    destination_size - 1
+  );
+  destination[destination_size - 1] = '\0';
+}
+
+bool text_is_empty(
+  const char *text
+) {
+  return !text || text[0] == '\0';
+}
+
+const thingsboard_route_t *find_thingsboard_route(
+  const char *node_client_id
+) {
+  if (text_is_empty(node_client_id)) {
+    return nullptr;
+  }
+
+  if (
+    strcmp(
+      node_client_id,
+      MASTER_THINGSBOARD_ROUTE.node_client_id
+    ) == 0
+  ) {
+    return &MASTER_THINGSBOARD_ROUTE;
+  }
+
+  for (size_t i = 0; i < THINGSBOARD_ROUTE_COUNT; i++) {
+    if (
+      strcmp(
+        node_client_id,
+        THINGSBOARD_ROUTES[i].node_client_id
+      ) == 0
+    ) {
+      return &THINGSBOARD_ROUTES[i];
+    }
+  }
+
+  return nullptr;
 }
 
 float clamp_float(
@@ -276,8 +374,14 @@ void add_section_peer(
 }
 
 bool enqueue_telemetry(
-  const char *payload
+  const char *payload,
+  const thingsboard_route_t *route
 ) {
+  if (!route) {
+    Serial.println("Telemetry route missing");
+    return false;
+  }
+
   if (telemetry_queue_count >= TELEMETRY_QUEUE_LENGTH) {
     Serial.println("Telemetry queue full");
     return false;
@@ -286,12 +390,21 @@ bool enqueue_telemetry(
   telemetry_message_t *message =
     &telemetry_queue[telemetry_queue_tail];
 
-  strncpy(
-    message->payload,
-    payload,
-    TELEMETRY_PAYLOAD_SIZE - 1
+  copy_text(
+    message->node_client_id,
+    sizeof(message->node_client_id),
+    route->node_client_id
   );
-  message->payload[TELEMETRY_PAYLOAD_SIZE - 1] = '\0';
+  copy_text(
+    message->thingsboard_client_id,
+    sizeof(message->thingsboard_client_id),
+    route->thingsboard_client_id
+  );
+  copy_text(
+    message->payload,
+    sizeof(message->payload),
+    payload
+  );
   message->pending = true;
 
   telemetry_queue_tail =
@@ -305,10 +418,20 @@ bool enqueue_telemetry(
 void queue_weather_telemetry(
   const farm_packet_t *pkt
 ) {
+  const thingsboard_route_t *route =
+    find_thingsboard_route(pkt->device_client_id);
+
+  if (!route) {
+    Serial.print("No ThingsBoard route for weather client_id: ");
+    Serial.println(pkt->device_client_id);
+    return;
+  }
+
   StaticJsonDocument<TELEMETRY_PAYLOAD_SIZE> doc;
 
   doc["section_id"] = pkt->section_id;
   doc["node_id"] = pkt->node_id;
+  doc["device_client_id"] = pkt->device_client_id;
   doc["sample_time"] = pkt->weather.sample_time;
   doc["temperature_2m"] = pkt->weather.temperature_2m;
   doc["relative_humidity_2m"] = pkt->weather.relative_humidity_2m;
@@ -332,7 +455,7 @@ void queue_weather_telemetry(
     return;
   }
 
-  if (enqueue_telemetry(payload)) {
+  if (enqueue_telemetry(payload, route)) {
     Serial.println("Weather telemetry queued");
   }
 }
@@ -340,14 +463,25 @@ void queue_weather_telemetry(
 void queue_section_status_telemetry(
   const farm_packet_t *pkt
 ) {
-  StaticJsonDocument<256> doc;
+  const thingsboard_route_t *route =
+    find_thingsboard_route(pkt->device_client_id);
+
+  if (!route) {
+    Serial.print("No ThingsBoard route for section client_id: ");
+    Serial.println(pkt->device_client_id);
+    return;
+  }
+
+  StaticJsonDocument<384> doc;
 
   doc["section_id"] = pkt->section_id;
+  doc["node_id"] = pkt->node_id;
+  doc["device_client_id"] = pkt->device_client_id;
   doc["valve_state"] = pkt->status.valve_state;
   doc["spray_state"] = pkt->status.spray_state;
   doc["fertilizer_state"] = pkt->status.fertilizer_state;
 
-  char payload[256];
+  char payload[384];
   size_t length =
     serializeJson(doc, payload, sizeof(payload));
 
@@ -356,7 +490,7 @@ void queue_section_status_telemetry(
     return;
   }
 
-  enqueue_telemetry(payload);
+  enqueue_telemetry(payload, route);
 }
 
 void weather_to_features(
@@ -541,13 +675,18 @@ void send_control_packet(
   uint8_t section_id,
   control_payload_t control
 ) {
-  farm_packet_t pkt;
+  farm_packet_t pkt = {};
 
   WiFi.macAddress(pkt.source_mac);
   memcpy(pkt.destination_mac, section_mac, 6);
 
   pkt.section_id = section_id;
   pkt.node_id = 0;
+  copy_text(
+    pkt.device_client_id,
+    sizeof(pkt.device_client_id),
+    MASTER_NODE_CLIENT_ID
+  );
 
   pkt.sequence = sequence_counter++;
   pkt.type = MSG_CONTROL_CMD;
@@ -692,7 +831,7 @@ void publish_manual_control_result(
     serializeJson(doc, payload, sizeof(payload));
 
   if (length > 0 && length < sizeof(payload)) {
-    enqueue_telemetry(payload);
+    enqueue_telemetry(payload, &MASTER_THINGSBOARD_ROUTE);
   }
 }
 
@@ -878,17 +1017,48 @@ void request_shared_attributes() {
   mqtt.publish(topic, request);
 }
 
-bool connect_thingsboard() {
+bool route_matches_active_connection(
+  const thingsboard_route_t *route
+) {
+  return (
+    mqtt.connected() &&
+    route &&
+    strcmp(
+      active_thingsboard_node_client_id,
+      route->node_client_id
+    ) == 0
+  );
+}
+
+bool connect_thingsboard_route(
+  const thingsboard_route_t *route
+) {
+  if (!route) {
+    return false;
+  }
+
+  if (route_matches_active_connection(route)) {
+    return true;
+  }
+
+  if (mqtt.connected()) {
+    mqtt.disconnect();
+    mqtt_subscribed = false;
+    active_thingsboard_node_client_id[0] = '\0';
+  }
+
   if (!connect_gprs()) {
     return false;
   }
 
   Serial.print("Connecting ThingsBoard MQTT: ");
   Serial.println(THINGSBOARD_SERVER);
+  Serial.print("Route client_id: ");
+  Serial.println(route->node_client_id);
 
   bool connected =
     mqtt.connect(
-      THINGSBOARD_CLIENT_ID
+      route->thingsboard_client_id,
     );
 
   if (!connected) {
@@ -897,16 +1067,31 @@ bool connect_thingsboard() {
       mqtt.state()
     );
     mqtt_subscribed = false;
+    active_thingsboard_node_client_id[0] = '\0';
     return false;
   }
 
-  mqtt.subscribe(TB_ATTRIBUTES_TOPIC);
-  mqtt.subscribe(TB_ATTRIBUTES_RESPONSE_TOPIC);
-  request_shared_attributes();
+  copy_text(
+    active_thingsboard_node_client_id,
+    sizeof(active_thingsboard_node_client_id),
+    route->node_client_id
+  );
 
-  mqtt_subscribed = true;
+  if (route->subscribe_for_commands) {
+    mqtt.subscribe(TB_ATTRIBUTES_TOPIC);
+    mqtt.subscribe(TB_ATTRIBUTES_RESPONSE_TOPIC);
+    request_shared_attributes();
+    mqtt_subscribed = true;
+  } else {
+    mqtt_subscribed = false;
+  }
+
   Serial.println("ThingsBoard MQTT connected");
   return true;
+}
+
+bool connect_master_thingsboard() {
+  return connect_thingsboard_route(&MASTER_THINGSBOARD_ROUTE);
 }
 
 void init_gsm_modem() {
@@ -952,7 +1137,7 @@ void maintain_thingsboard() {
     return;
   }
 
-  if (mqtt.connected()) {
+  if (route_matches_active_connection(&MASTER_THINGSBOARD_ROUTE)) {
     mqtt.loop();
     return;
   }
@@ -967,17 +1152,30 @@ void maintain_thingsboard() {
   }
 
   last_mqtt_reconnect_attempt = now;
-  connect_thingsboard();
+  connect_master_thingsboard();
 }
 
 void publish_queued_telemetry() {
-  if (!mqtt.connected()) {
+  if (!modem_ready) {
     return;
   }
 
   while (telemetry_queue_count > 0) {
     telemetry_message_t *message =
       &telemetry_queue[telemetry_queue_head];
+
+    thingsboard_route_t queued_route = {
+      message->node_client_id,
+      message->thingsboard_client_id,
+      strcmp(
+        message->node_client_id,
+        MASTER_THINGSBOARD_ROUTE.node_client_id
+      ) == 0
+    };
+
+    if (!connect_thingsboard_route(&queued_route)) {
+      return;
+    }
 
     if (
       !mqtt.publish(
@@ -997,6 +1195,10 @@ void publish_queued_telemetry() {
 
     Serial.println("Telemetry published to ThingsBoard");
   }
+
+  if (!route_matches_active_connection(&MASTER_THINGSBOARD_ROUTE)) {
+    connect_master_thingsboard();
+  }
 }
 
 /* ============================
@@ -1007,6 +1209,8 @@ void handle_weather_packet(
   farm_packet_t *pkt,
   const uint8_t *section_mac
 ) {
+  pkt->device_client_id[DEVICE_CLIENT_ID_LENGTH - 1] = '\0';
+
   if (
     pkt->node_id >= MAX_SENSOR_NODES ||
     pkt->section_id >= MAX_SECTIONS
@@ -1046,6 +1250,8 @@ void handle_weather_packet(
     cache->count,
     WEATHER_HISTORY_LENGTH
   );
+  Serial.print("Weather client_id: ");
+  Serial.println(pkt->device_client_id);
   Serial.printf("temperature_2m: %.2f\n", pkt->weather.temperature_2m);
   Serial.printf("relative_humidity_2m: %.2f\n", pkt->weather.relative_humidity_2m);
   Serial.printf("vapour_pressure_deficit_kpa: %.3f\n", pkt->weather.vapour_pressure_deficit_kpa);
@@ -1064,7 +1270,11 @@ void handle_weather_packet(
 void handle_status_packet(
   farm_packet_t *pkt
 ) {
+  pkt->device_client_id[DEVICE_CLIENT_ID_LENGTH - 1] = '\0';
+
   Serial.printf("Section %d status:\n", pkt->section_id);
+  Serial.print("Section client_id: ");
+  Serial.println(pkt->device_client_id);
   Serial.printf("Valve: %s\n", pkt->status.valve_state ? "ON" : "OFF");
   Serial.printf("Spray: %s\n", pkt->status.spray_state ? "ON" : "OFF");
   Serial.printf("Fertilizer: %s\n", pkt->status.fertilizer_state ? "ON" : "OFF");

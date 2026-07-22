@@ -2,6 +2,7 @@
 #include <esp_now.h>
 #include <esp_mac.h>
 #include <math.h>
+#include <string.h>
 
 #include "recent_weather_sample.h"
 
@@ -16,6 +17,9 @@
 
 #define SEND_INTERVAL_MS 5000
 #define HEARTBEAT_INTERVAL_MS 15000
+#define DEVICE_CLIENT_ID_LENGTH 40
+
+const char SENSOR_NODE_CLIENT_ID[] = "";
 
 /* ============================
    SECTION NODE MAC
@@ -82,6 +86,7 @@ typedef struct {
 
   uint8_t section_id;
   uint8_t node_id;
+  char device_client_id[DEVICE_CLIENT_ID_LENGTH];
 
   uint32_t sequence;
   msg_type_t type;
@@ -115,6 +120,27 @@ void print_mac(const uint8_t *mac) {
     mac[0], mac[1], mac[2],
     mac[3], mac[4], mac[5]
   );
+}
+
+void copy_text(
+  char *destination,
+  size_t destination_size,
+  const char *source
+) {
+  if (destination_size == 0) {
+    return;
+  }
+
+  if (!source) {
+    source = "";
+  }
+
+  strncpy(
+    destination,
+    source,
+    destination_size - 1
+  );
+  destination[destination_size - 1] = '\0';
 }
 
 float clamp_float(
@@ -192,13 +218,18 @@ weather_payload_t read_weather_sample() {
 ============================ */
 
 void send_weather_packet() {
-  farm_packet_t pkt;
+  farm_packet_t pkt = {};
 
   WiFi.macAddress(pkt.source_mac);
   memcpy(pkt.destination_mac, section_mac, 6);
 
   pkt.section_id = SECTION_ID;
   pkt.node_id = NODE_ID;
+  copy_text(
+    pkt.device_client_id,
+    sizeof(pkt.device_client_id),
+    SENSOR_NODE_CLIENT_ID
+  );
 
   pkt.sequence = packet_counter++;
   pkt.type = MSG_WEATHER_DATA;
@@ -232,13 +263,18 @@ void send_weather_packet() {
 ============================ */
 
 void send_heartbeat() {
-  farm_packet_t pkt;
+  farm_packet_t pkt = {};
 
   WiFi.macAddress(pkt.source_mac);
   memcpy(pkt.destination_mac, section_mac, 6);
 
   pkt.section_id = SECTION_ID;
   pkt.node_id = NODE_ID;
+  copy_text(
+    pkt.device_client_id,
+    sizeof(pkt.device_client_id),
+    SENSOR_NODE_CLIENT_ID
+  );
 
   pkt.sequence = packet_counter++;
   pkt.type = MSG_STATUS;
@@ -343,7 +379,7 @@ void on_data_recv(
     return;
   }
 
-  farm_packet_t pkt;
+  farm_packet_t pkt = {};
   memcpy(&pkt, incoming_data, sizeof(pkt));
 
   Serial.print("Packet received from: ");

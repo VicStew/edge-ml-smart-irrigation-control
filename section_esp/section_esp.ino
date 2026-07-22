@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_mac.h>
+#include <string.h>
 
 /* ============================
    CONFIGURATION
@@ -15,6 +16,9 @@
 
 #define STATUS_INTERVAL_MS 10000
 #define MAX_SENSOR_PEERS 16
+#define DEVICE_CLIENT_ID_LENGTH 40
+
+const char SECTION_NODE_CLIENT_ID[] = "";
 
 /* ============================
    MASTER MAC
@@ -81,6 +85,7 @@ typedef struct {
 
   uint8_t section_id;
   uint8_t node_id;
+  char device_client_id[DEVICE_CLIENT_ID_LENGTH];
 
   uint32_t sequence;
   msg_type_t type;
@@ -121,6 +126,27 @@ void print_mac(const uint8_t *mac) {
     mac[0], mac[1], mac[2],
     mac[3], mac[4], mac[5]
   );
+}
+
+void copy_text(
+  char *destination,
+  size_t destination_size,
+  const char *source
+) {
+  if (destination_size == 0) {
+    return;
+  }
+
+  if (!source) {
+    source = "";
+  }
+
+  strncpy(
+    destination,
+    source,
+    destination_size - 1
+  );
+  destination[destination_size - 1] = '\0';
 }
 
 bool mac_equal(
@@ -196,13 +222,18 @@ void update_timed_outputs() {
 ============================ */
 
 void send_status() {
-  farm_packet_t pkt;
+  farm_packet_t pkt = {};
 
   WiFi.macAddress(pkt.source_mac);
   memcpy(pkt.destination_mac, master_mac, 6);
 
   pkt.section_id = SECTION_ID;
   pkt.node_id = 0;
+  copy_text(
+    pkt.device_client_id,
+    sizeof(pkt.device_client_id),
+    SECTION_NODE_CLIENT_ID
+  );
 
   pkt.sequence = packet_counter++;
   pkt.type = MSG_STATUS;
@@ -229,11 +260,14 @@ void handle_weather_packet(
   const uint8_t *sensor_mac
 ) {
   remember_sensor_peer(sensor_mac);
+  pkt->device_client_id[DEVICE_CLIENT_ID_LENGTH - 1] = '\0';
 
   Serial.printf(
     "Weather packet from node %d\n",
     pkt->node_id
   );
+  Serial.print("Sensor client_id: ");
+  Serial.println(pkt->device_client_id);
   Serial.printf("temperature_2m: %.2f\n", pkt->weather.temperature_2m);
   Serial.printf("relative_humidity_2m: %.2f\n", pkt->weather.relative_humidity_2m);
   Serial.printf("vapour_pressure_deficit_kpa: %.3f\n", pkt->weather.vapour_pressure_deficit_kpa);
@@ -353,7 +387,7 @@ void on_data_recv(
     return;
   }
 
-  farm_packet_t pkt;
+  farm_packet_t pkt = {};
   memcpy(&pkt, incoming_data, sizeof(pkt));
 
   Serial.print("Packet from: ");
