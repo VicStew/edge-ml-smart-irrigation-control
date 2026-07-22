@@ -1,10 +1,13 @@
+#include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_mac.h>
 #include <math.h>
 #include <string.h>
 
-#include "recent_weather_sample.h"
+#include <dhtnew.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
 /* ============================
    CONFIGURATION
@@ -14,6 +17,14 @@
 
 #define NODE_ID 1
 #define SECTION_ID 1
+
+#define AM2301A_PIN 4
+#define SOIL_MOISTURE_ADC_PIN 0
+#define DS18B20_PIN 3
+
+#define SOIL_MOISTURE_DRY_ADC 3000
+#define SOIL_MOISTURE_WET_ADC 1200
+#define SOIL_MOISTURE_SAMPLE_COUNT 8
 
 #define SEND_INTERVAL_MS 5000
 #define HEARTBEAT_INTERVAL_MS 15000
@@ -30,30 +41,50 @@ uint8_t section_mac[6] = {
 };
 
 /* ============================
+   SENSORS
+============================ */
+
+DHTNEW ambient_sensor(AM2301A_PIN);
+OneWire soil_temperature_bus(DS18B20_PIN);
+DallasTemperature soil_temperature_sensor(&soil_temperature_bus);
+
+/* ============================
    MESSAGE TYPES
 ============================ */
 
-typedef enum {
-  MSG_WEATHER_DATA = 1,
-  MSG_CONTROL_CMD = 2,
-  MSG_STATUS = 3,
-  MSG_ACK = 4
-} msg_type_t;
+enum msg_type_t : uint8_t {
+  MSG_SENSOR_DATA = 1,
+  MSG_SECTION_DATA = 2,
+  MSG_CONTROL_CMD = 3,
+  MSG_STATUS = 4,
+  MSG_ACK = 5
+};
+
+enum sensor_valid_flag_t : uint8_t {
+  SENSOR_AMBIENT_VALID = 1 << 0,
+  SENSOR_SOIL_MOISTURE_VALID = 1 << 1,
+  SENSOR_SOIL_TEMPERATURE_VALID = 1 << 2
+};
 
 /* ============================
-   WEATHER PAYLOAD
+   SENSOR PAYLOADS
 ============================ */
 
 typedef struct {
-  uint32_t sample_time;
-  float temperature_2m;
-  float relative_humidity_2m;
-  float vapour_pressure_deficit_kpa;
-  float soil_temperature_0_to_7cm;
-  float soil_moisture_0_to_7cm;
-  float et0_fao_evapotranspiration;
-  float shortwave_radiation;
-} weather_payload_t;
+  uint32_t sample_time_ms;
+  float ambient_temperature_c;
+  float ambient_humidity_percent;
+  uint16_t soil_moisture_adc;
+  float soil_moisture_percent;
+  float soil_temperature_c;
+  uint8_t valid_fields;
+} __attribute__((packed)) sensor_readings_t;
+
+typedef struct {
+  sensor_readings_t sensors;
+  float water_flow_rate_l_min;
+  float total_water_volume_l;
+} __attribute__((packed)) section_readings_t;
 
 /* ============================
    CONTROL PAYLOAD
@@ -64,7 +95,7 @@ typedef struct {
   bool spray_pesticide;
   bool apply_fertilizer;
   uint16_t irrigation_duration_sec;
-} control_payload_t;
+} __attribute__((packed)) control_payload_t;
 
 /* ============================
    STATUS PAYLOAD
@@ -72,9 +103,12 @@ typedef struct {
 
 typedef struct {
   bool alive;
-  uint32_t uptime;
+  bool valve_state;
+  bool spray_state;
+  bool fertilizer_state;
+  uint32_t uptime_ms;
   uint32_t packets_sent;
-} status_payload_t;
+} __attribute__((packed)) status_payload_t;
 
 /* ============================
    FARM PACKET
@@ -92,12 +126,17 @@ typedef struct {
   msg_type_t type;
 
   union {
-    weather_payload_t weather;
+    sensor_readings_t sensor_data;
+    section_readings_t section_data;
     control_payload_t control;
     status_payload_t status;
   };
-
 } __attribute__((packed)) farm_packet_t;
+
+static_assert(sizeof(sensor_readings_t) == 23, "Sensor payload layout changed");
+static_assert(sizeof(section_readings_t) == 31, "Section payload layout changed");
+static_assert(sizeof(farm_packet_t) == 90, "Farm packet layout changed");
+static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too large");
 
 /* ============================
    GLOBAL STATE
@@ -108,7 +147,6 @@ unsigned long last_heartbeat = 0;
 
 uint32_t packet_counter = 0;
 uint32_t packets_sent = 0;
-uint8_t weather_sample_index = 0;
 
 /* ============================
    HELPERS
@@ -135,11 +173,7 @@ void copy_text(
     source = "";
   }
 
-  strncpy(
-    destination,
-    source,
-    destination_size - 1
-  );
+  strncpy(destination, source, destination_size - 1);
   destination[destination_size - 1] = '\0';
 }
 
@@ -159,65 +193,103 @@ float clamp_float(
   return value;
 }
 
-float calculate_vapour_pressure_deficit_kpa(
-  float temperature_c,
-  float relative_humidity_percent
-) {
-  float relative_humidity =
-    clamp_float(
-      relative_humidity_percent,
-      0.0f,
-      100.0f
-    );
+float soil_moisture_percent_from_adc(uint16_t adc_value) {
+  if (SOIL_MOISTURE_DRY_ADC == SOIL_MOISTURE_WET_ADC) {
+    return 0.0f;
+  }
 
-  float saturation_vapour_pressure_kpa =
-    0.6108f *
-    expf(
-      (17.27f * temperature_c) /
-      (temperature_c + 237.3f)
-    );
+  float percentage =
+    100.0f *
+    ((float)SOIL_MOISTURE_DRY_ADC - adc_value) /
+    ((float)SOIL_MOISTURE_DRY_ADC - SOIL_MOISTURE_WET_ADC);
 
-  float vapour_pressure_deficit_kpa =
-    saturation_vapour_pressure_kpa *
-    (1.0f - (relative_humidity / 100.0f));
-
-  return vapour_pressure_deficit_kpa > 0.0f ?
-    vapour_pressure_deficit_kpa :
-    0.0f;
+  return clamp_float(percentage, 0.0f, 100.0f);
 }
 
-weather_payload_t read_weather_sample() {
-  recent_weather_sample_t sample =
-    RECENT_WEATHER_SAMPLES[
-      weather_sample_index
-    ];
+uint16_t read_soil_moisture_adc() {
+  uint32_t total = 0;
 
-  weather_payload_t reading;
-  reading.sample_time = sample.sample_time;
-  reading.temperature_2m = sample.temperature_2m;
-  reading.relative_humidity_2m = sample.relative_humidity_2m;
-  reading.vapour_pressure_deficit_kpa =
-    calculate_vapour_pressure_deficit_kpa(
-      reading.temperature_2m,
-      reading.relative_humidity_2m
-    );
-  reading.soil_temperature_0_to_7cm = sample.soil_temperature_0_to_7cm;
-  reading.soil_moisture_0_to_7cm = sample.soil_moisture_0_to_7cm;
-  reading.et0_fao_evapotranspiration = sample.et0_fao_evapotranspiration;
-  reading.shortwave_radiation = sample.shortwave_radiation;
+  for (uint8_t i = 0; i < SOIL_MOISTURE_SAMPLE_COUNT; i++) {
+    total += analogRead(SOIL_MOISTURE_ADC_PIN);
+    delay(2);
+  }
 
-  weather_sample_index =
-    (weather_sample_index + 1) %
-    RECENT_WEATHER_SAMPLE_COUNT;
+  return (uint16_t)(total / SOIL_MOISTURE_SAMPLE_COUNT);
+}
+
+sensor_readings_t read_sensors() {
+  sensor_readings_t reading = {};
+
+  reading.sample_time_ms = millis();
+  reading.ambient_temperature_c = NAN;
+  reading.ambient_humidity_percent = NAN;
+  reading.soil_temperature_c = NAN;
+
+  int ambient_result = ambient_sensor.read();
+
+  if (ambient_result == DHTLIB_OK) {
+    float temperature = ambient_sensor.getTemperature();
+    float humidity = ambient_sensor.getHumidity();
+
+    if (isfinite(temperature) && isfinite(humidity)) {
+      reading.ambient_temperature_c = temperature;
+      reading.ambient_humidity_percent = humidity;
+      reading.valid_fields |= SENSOR_AMBIENT_VALID;
+    }
+  } else {
+    Serial.printf("AM2301A read failed: %d\n", ambient_result);
+  }
+
+  reading.soil_moisture_adc = read_soil_moisture_adc();
+  reading.soil_moisture_percent =
+    soil_moisture_percent_from_adc(reading.soil_moisture_adc);
+  reading.valid_fields |= SENSOR_SOIL_MOISTURE_VALID;
+
+  soil_temperature_sensor.requestTemperatures();
+  float soil_temperature =
+    soil_temperature_sensor.getTempCByIndex(0);
+
+  if (
+    soil_temperature != DEVICE_DISCONNECTED_C &&
+    isfinite(soil_temperature)
+  ) {
+    reading.soil_temperature_c = soil_temperature;
+    reading.valid_fields |= SENSOR_SOIL_TEMPERATURE_VALID;
+  } else {
+    Serial.println("DS18B20 read failed");
+  }
 
   return reading;
 }
 
+void print_sensor_readings(const sensor_readings_t &reading) {
+  Serial.printf(
+    "ambient_temperature_c: %.2f\n",
+    reading.ambient_temperature_c
+  );
+  Serial.printf(
+    "ambient_humidity_percent: %.2f\n",
+    reading.ambient_humidity_percent
+  );
+  Serial.printf(
+    "soil_moisture_adc: %u\n",
+    reading.soil_moisture_adc
+  );
+  Serial.printf(
+    "soil_moisture_percent: %.2f\n",
+    reading.soil_moisture_percent
+  );
+  Serial.printf(
+    "soil_temperature_c: %.2f\n",
+    reading.soil_temperature_c
+  );
+}
+
 /* ============================
-   SEND WEATHER PACKET
+   SEND SENSOR PACKET
 ============================ */
 
-void send_weather_packet() {
+void send_sensor_packet() {
   farm_packet_t pkt = {};
 
   WiFi.macAddress(pkt.source_mac);
@@ -232,29 +304,21 @@ void send_weather_packet() {
   );
 
   pkt.sequence = packet_counter++;
-  pkt.type = MSG_WEATHER_DATA;
-  pkt.weather = read_weather_sample();
+  pkt.type = MSG_SENSOR_DATA;
+  pkt.sensor_data = read_sensors();
 
-  esp_err_t result =
-    esp_now_send(
-      section_mac,
-      (uint8_t*)&pkt,
-      sizeof(pkt)
-    );
+  esp_err_t result = esp_now_send(
+    section_mac,
+    (uint8_t*)&pkt,
+    sizeof(pkt)
+  );
 
   if (result == ESP_OK) {
     packets_sent++;
-
-    Serial.println("Weather packet sent");
-    Serial.printf("temperature_2m: %.2f\n", pkt.weather.temperature_2m);
-    Serial.printf("relative_humidity_2m: %.2f\n", pkt.weather.relative_humidity_2m);
-    Serial.printf("vapour_pressure_deficit_kpa: %.3f\n", pkt.weather.vapour_pressure_deficit_kpa);
-    Serial.printf("soil_temperature_0_to_7cm: %.2f\n", pkt.weather.soil_temperature_0_to_7cm);
-    Serial.printf("soil_moisture_0_to_7cm: %.3f\n", pkt.weather.soil_moisture_0_to_7cm);
-    Serial.printf("et0_fao_evapotranspiration: %.3f\n", pkt.weather.et0_fao_evapotranspiration);
-    Serial.printf("shortwave_radiation: %.2f\n", pkt.weather.shortwave_radiation);
+    Serial.println("Sensor packet queued");
+    print_sensor_readings(pkt.sensor_data);
   } else {
-    Serial.println("Failed to send weather packet");
+    Serial.printf("Failed to queue sensor packet: %d\n", result);
   }
 }
 
@@ -278,68 +342,30 @@ void send_heartbeat() {
 
   pkt.sequence = packet_counter++;
   pkt.type = MSG_STATUS;
-
   pkt.status.alive = true;
-  pkt.status.uptime = millis();
+  pkt.status.uptime_ms = millis();
   pkt.status.packets_sent = packets_sent;
 
-  esp_now_send(
-    section_mac,
-    (uint8_t*)&pkt,
-    sizeof(pkt)
-  );
-
+  esp_now_send(section_mac, (uint8_t*)&pkt, sizeof(pkt));
   Serial.println("Heartbeat sent");
 }
 
 /* ============================
-   HANDLE CONTROL COMMANDS
+   RECEIVE ROUTER
 ============================ */
 
-void handle_control_packet(
-  farm_packet_t *pkt
-) {
-  Serial.println("Control command received");
-
-  if (pkt->control.irrigate) {
-    Serial.printf(
-      "Irrigation scheduled for %u sec\n",
-      pkt->control.irrigation_duration_sec
-    );
-  }
-
-  if (pkt->control.spray_pesticide) {
-    Serial.println("Pesticide scheduled");
-  }
-
-  if (pkt->control.apply_fertilizer) {
-    Serial.println("Fertilizer scheduled");
-  }
-}
-
-void handle_ack_packet(
-  farm_packet_t *pkt
-) {
-  Serial.printf(
-    "ACK received seq=%lu\n",
-    pkt->sequence
-  );
-}
-
-/* ============================
-   ROUTER
-============================ */
-
-void route_packet(
-  farm_packet_t *pkt
-) {
+void route_packet(farm_packet_t *pkt) {
   switch (pkt->type) {
     case MSG_CONTROL_CMD:
-      handle_control_packet(pkt);
+      Serial.printf(
+        "Control command received: irrigate=%s duration=%u sec\n",
+        pkt->control.irrigate ? "true" : "false",
+        pkt->control.irrigation_duration_sec
+      );
       break;
 
     case MSG_ACK:
-      handle_ack_packet(pkt);
+      Serial.printf("ACK received seq=%lu\n", pkt->sequence);
       break;
 
     default:
@@ -349,25 +375,18 @@ void route_packet(
 }
 
 /* ============================
-   SEND CALLBACK
+   ESPNOW CALLBACKS
 ============================ */
 
 void on_data_sent(
   const wifi_tx_info_t *tx_info,
   esp_now_send_status_t status
 ) {
-  Serial.print("Send Status: ");
-
-  if (status == ESP_NOW_SEND_SUCCESS) {
-    Serial.println("Success");
-  } else {
-    Serial.println("Failed");
-  }
+  Serial.print("Send status: ");
+  Serial.println(
+    status == ESP_NOW_SEND_SUCCESS ? "Success" : "Failed"
+  );
 }
-
-/* ============================
-   RECEIVE CALLBACK
-============================ */
 
 void on_data_recv(
   const esp_now_recv_info_t *recv_info,
@@ -375,7 +394,11 @@ void on_data_recv(
   int len
 ) {
   if (len != sizeof(farm_packet_t)) {
-    Serial.println("Invalid packet size");
+    Serial.printf(
+      "Invalid packet size: %d, expected %u\n",
+      len,
+      (unsigned int)sizeof(farm_packet_t)
+    );
     return;
   }
 
@@ -389,35 +412,44 @@ void on_data_recv(
 }
 
 /* ============================
-   INIT ESPNOW
+   INITIALIZATION
 ============================ */
+
+void init_sensors() {
+  ambient_sensor.setType(22);
+
+  analogReadResolution(12);
+  pinMode(SOIL_MOISTURE_ADC_PIN, INPUT);
+
+  soil_temperature_sensor.begin();
+  soil_temperature_sensor.setResolution(10);
+}
 
 void init_espnow() {
   if (esp_now_init() != ESP_OK) {
     Serial.println("ESP-NOW init failed");
-    ESP.restart();
+    while (true) {
+      delay(1000);
+    }
   }
 
   esp_now_register_send_cb(on_data_sent);
   esp_now_register_recv_cb(on_data_recv);
 
-  esp_now_peer_info_t peerInfo = {};
+  esp_now_peer_info_t peer_info = {};
+  memcpy(peer_info.peer_addr, section_mac, 6);
+  peer_info.channel = WIFI_CHANNEL;
+  peer_info.encrypt = false;
 
-  memcpy(peerInfo.peer_addr, section_mac, 6);
-  peerInfo.channel = WIFI_CHANNEL;
-  peerInfo.encrypt = false;
-
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+  if (esp_now_add_peer(&peer_info) != ESP_OK) {
     Serial.println("Failed to add section peer");
   }
 }
 
-/* ============================
-   SETUP
-============================ */
-
 void setup() {
   Serial.begin(115200);
+
+  init_sensors();
 
   WiFi.mode(WIFI_STA);
   WiFi.setChannel(WIFI_CHANNEL);
@@ -429,19 +461,15 @@ void setup() {
   print_mac(section_mac);
 }
 
-/* ============================
-   LOOP
-============================ */
-
 void loop() {
   unsigned long now = millis();
 
-  if (now - last_send > SEND_INTERVAL_MS) {
-    send_weather_packet();
+  if (now - last_send >= SEND_INTERVAL_MS) {
+    send_sensor_packet();
     last_send = now;
   }
 
-  if (now - last_heartbeat > HEARTBEAT_INTERVAL_MS) {
+  if (now - last_heartbeat >= HEARTBEAT_INTERVAL_MS) {
     send_heartbeat();
     last_heartbeat = now;
   }

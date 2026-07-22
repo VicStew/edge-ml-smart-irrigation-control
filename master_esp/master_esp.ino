@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include <WiFi.h>
 #include <esp_now.h>
 #include <math.h>
@@ -11,26 +12,18 @@
 #include <TinyGsmClient.h>
 #include <PubSubClient.h>
 
-#include "tensorflow/lite/micro/micro_interpreter.h"
-#include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
-#include "tensorflow/lite/schema/schema_generated.h"
-#include "hourly_rainfall_forecaster.h"
-#include "hourly_rainfall_preprocessing.h"
-
 /* ============================
    CONFIGURATION
 ============================ */
 
 #define WIFI_CHANNEL 4
 #define CONTROL_INTERVAL_MS 30000
-#define RAIN_AMOUNT_BLOCK_THRESHOLD_MM 1.00f
+#define SOIL_MOISTURE_IRRIGATION_THRESHOLD_PERCENT 35.0f
 #define MIN_IRRIGATION_DURATION_SEC 60
 #define MAX_IRRIGATION_DURATION_SEC 300
 
 #define MAX_SECTIONS 10
 #define MAX_SENSOR_NODES 32
-#define WEATHER_HISTORY_LENGTH 24
-#define TENSOR_ARENA_SIZE (48 * 1024)
 
 #define SIM800_RX_PIN 16
 #define SIM800_TX_PIN 17
@@ -97,27 +90,39 @@ const size_t THINGSBOARD_ROUTE_COUNT =
    MESSAGE TYPES
 ============================ */
 
-typedef enum {
-  MSG_WEATHER_DATA = 1,
-  MSG_CONTROL_CMD = 2,
-  MSG_STATUS = 3,
-  MSG_ACK = 4
-} msg_type_t;
+enum msg_type_t : uint8_t {
+  MSG_SENSOR_DATA = 1,
+  MSG_SECTION_DATA = 2,
+  MSG_CONTROL_CMD = 3,
+  MSG_STATUS = 4,
+  MSG_ACK = 5
+};
+
+enum sensor_valid_flag_t : uint8_t {
+  SENSOR_AMBIENT_VALID = 1 << 0,
+  SENSOR_SOIL_MOISTURE_VALID = 1 << 1,
+  SENSOR_SOIL_TEMPERATURE_VALID = 1 << 2
+};
 
 /* ============================
-   WEATHER PAYLOAD
+   SENSOR PAYLOADS
 ============================ */
 
 typedef struct {
-  uint32_t sample_time;
-  float temperature_2m;
-  float relative_humidity_2m;
-  float vapour_pressure_deficit_kpa;
-  float soil_temperature_0_to_7cm;
-  float soil_moisture_0_to_7cm;
-  float et0_fao_evapotranspiration;
-  float shortwave_radiation;
-} weather_payload_t;
+  uint32_t sample_time_ms;
+  float ambient_temperature_c;
+  float ambient_humidity_percent;
+  uint16_t soil_moisture_adc;
+  float soil_moisture_percent;
+  float soil_temperature_c;
+  uint8_t valid_fields;
+} __attribute__((packed)) sensor_readings_t;
+
+typedef struct {
+  sensor_readings_t sensors;
+  float water_flow_rate_l_min;
+  float total_water_volume_l;
+} __attribute__((packed)) section_readings_t;
 
 /* ============================
    CONTROL PAYLOAD
@@ -128,17 +133,20 @@ typedef struct {
   bool spray_pesticide;
   bool apply_fertilizer;
   uint16_t irrigation_duration_sec;
-} control_payload_t;
+} __attribute__((packed)) control_payload_t;
 
 /* ============================
    STATUS PAYLOAD
 ============================ */
 
 typedef struct {
+  bool alive;
   bool valve_state;
   bool spray_state;
   bool fertilizer_state;
-} status_payload_t;
+  uint32_t uptime_ms;
+  uint32_t packets_sent;
+} __attribute__((packed)) status_payload_t;
 
 /* ============================
    FARM PACKET
@@ -156,19 +164,28 @@ typedef struct {
   msg_type_t type;
 
   union {
-    weather_payload_t weather;
+    sensor_readings_t sensor_data;
+    section_readings_t section_data;
     control_payload_t control;
     status_payload_t status;
   };
-
 } __attribute__((packed)) farm_packet_t;
 
-static const size_t FARM_PACKET_HEADER_SIZE =
-  offsetof(farm_packet_t, weather);
+static_assert(sizeof(sensor_readings_t) == 23, "Sensor payload layout changed");
+static_assert(sizeof(section_readings_t) == 31, "Section payload layout changed");
+static_assert(sizeof(farm_packet_t) == 90, "Farm packet layout changed");
+static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too large");
 
-static const size_t FARM_PACKET_WEATHER_SIZE =
+static const size_t FARM_PACKET_HEADER_SIZE =
+  offsetof(farm_packet_t, sensor_data);
+
+static const size_t FARM_PACKET_SENSOR_SIZE =
   FARM_PACKET_HEADER_SIZE +
-  sizeof(weather_payload_t);
+  sizeof(sensor_readings_t);
+
+static const size_t FARM_PACKET_SECTION_SIZE =
+  FARM_PACKET_HEADER_SIZE +
+  sizeof(section_readings_t);
 
 static const size_t FARM_PACKET_CONTROL_SIZE =
   FARM_PACKET_HEADER_SIZE +
@@ -197,29 +214,16 @@ typedef struct {
 manual_control_t manual_controls[MAX_SECTIONS];
 
 /* ============================
-   WEATHER HISTORY
+   SENSOR READING CACHE
 ============================ */
 
 typedef struct {
   bool valid;
-  uint8_t section_id;
-  weather_payload_t latest;
-  weather_payload_t history[WEATHER_HISTORY_LENGTH];
-  uint8_t next_index;
-  uint8_t count;
-} weather_cache_t;
+  sensor_readings_t latest;
+} sensor_cache_t;
 
-weather_cache_t weather_cache[MAX_SENSOR_NODES];
-
-typedef struct {
-  bool valid;
-  float precipitation_mm;
-} rainfall_forecast_t;
-
-rainfall_forecast_t latest_rainfall_forecast = {
-  false,
-  0
-};
+sensor_cache_t sensor_cache[MAX_SECTIONS][MAX_SENSOR_NODES];
+sensor_cache_t section_sensor_cache[MAX_SECTIONS];
 
 /* ============================
    THINGSBOARD STATE
@@ -247,19 +251,6 @@ uint32_t last_gsm_reconnect_attempt = 0;
 uint32_t last_mqtt_reconnect_attempt = 0;
 uint32_t shared_attribute_request_id = 1;
 char active_thingsboard_node_client_id[DEVICE_CLIENT_ID_LENGTH] = "";
-
-/* ============================
-   AI MODEL STATE
-============================ */
-
-const tflite::Model *rainfall_model = nullptr;
-tflite::MicroInterpreter *rainfall_interpreter = nullptr;
-TfLiteTensor *rainfall_input = nullptr;
-TfLiteTensor *rainfall_amount_output = nullptr;
-
-tflite::MicroMutableOpResolver<1> rainfall_resolver;
-alignas(16) uint8_t tensor_arena[TENSOR_ARENA_SIZE];
-bool rainfall_model_ready = false;
 
 /* ============================
    TIMERS
@@ -415,14 +406,14 @@ bool enqueue_telemetry(
   return true;
 }
 
-void queue_weather_telemetry(
+void queue_sensor_telemetry(
   const farm_packet_t *pkt
 ) {
   const thingsboard_route_t *route =
     find_thingsboard_route(pkt->device_client_id);
 
   if (!route) {
-    Serial.print("No ThingsBoard route for weather client_id: ");
+    Serial.print("No ThingsBoard route for sensor client_id: ");
     Serial.println(pkt->device_client_id);
     return;
   }
@@ -432,31 +423,80 @@ void queue_weather_telemetry(
   doc["section_id"] = pkt->section_id;
   doc["node_id"] = pkt->node_id;
   doc["device_client_id"] = pkt->device_client_id;
-  doc["sample_time"] = pkt->weather.sample_time;
-  doc["temperature_2m"] = pkt->weather.temperature_2m;
-  doc["relative_humidity_2m"] = pkt->weather.relative_humidity_2m;
-  doc["vapour_pressure_deficit_kpa"] =
-    pkt->weather.vapour_pressure_deficit_kpa;
-  doc["soil_temperature_0_to_7cm"] =
-    pkt->weather.soil_temperature_0_to_7cm;
-  doc["soil_moisture_0_to_7cm"] =
-    pkt->weather.soil_moisture_0_to_7cm;
-  doc["et0_fao_evapotranspiration"] =
-    pkt->weather.et0_fao_evapotranspiration;
-  doc["shortwave_radiation"] =
-    pkt->weather.shortwave_radiation;
+  doc["sample_time_ms"] = pkt->sensor_data.sample_time_ms;
+  doc["ambient_temperature_c"] =
+    pkt->sensor_data.ambient_temperature_c;
+  doc["ambient_humidity_percent"] =
+    pkt->sensor_data.ambient_humidity_percent;
+  doc["soil_moisture_adc"] =
+    pkt->sensor_data.soil_moisture_adc;
+  doc["soil_moisture_percent"] =
+    pkt->sensor_data.soil_moisture_percent;
+  doc["soil_temperature_c"] =
+    pkt->sensor_data.soil_temperature_c;
+  doc["valid_fields"] = pkt->sensor_data.valid_fields;
 
   char payload[TELEMETRY_PAYLOAD_SIZE];
   size_t length =
     serializeJson(doc, payload, sizeof(payload));
 
   if (length == 0 || length >= sizeof(payload)) {
-    Serial.println("Weather telemetry payload too large");
+    Serial.println("Sensor telemetry payload too large");
     return;
   }
 
   if (enqueue_telemetry(payload, route)) {
-    Serial.println("Weather telemetry queued");
+    Serial.println("Sensor telemetry queued");
+  }
+}
+
+void queue_section_sensor_telemetry(
+  const farm_packet_t *pkt
+) {
+  const thingsboard_route_t *route =
+    find_thingsboard_route(pkt->device_client_id);
+
+  if (!route) {
+    Serial.print("No ThingsBoard route for section client_id: ");
+    Serial.println(pkt->device_client_id);
+    return;
+  }
+
+  StaticJsonDocument<TELEMETRY_PAYLOAD_SIZE> doc;
+
+  doc["section_id"] = pkt->section_id;
+  doc["node_id"] = pkt->node_id;
+  doc["device_client_id"] = pkt->device_client_id;
+  doc["sample_time_ms"] =
+    pkt->section_data.sensors.sample_time_ms;
+  doc["ambient_temperature_c"] =
+    pkt->section_data.sensors.ambient_temperature_c;
+  doc["ambient_humidity_percent"] =
+    pkt->section_data.sensors.ambient_humidity_percent;
+  doc["soil_moisture_adc"] =
+    pkt->section_data.sensors.soil_moisture_adc;
+  doc["soil_moisture_percent"] =
+    pkt->section_data.sensors.soil_moisture_percent;
+  doc["soil_temperature_c"] =
+    pkt->section_data.sensors.soil_temperature_c;
+  doc["valid_fields"] =
+    pkt->section_data.sensors.valid_fields;
+  doc["water_flow_rate_l_min"] =
+    pkt->section_data.water_flow_rate_l_min;
+  doc["total_water_volume_l"] =
+    pkt->section_data.total_water_volume_l;
+
+  char payload[TELEMETRY_PAYLOAD_SIZE];
+  size_t length =
+    serializeJson(doc, payload, sizeof(payload));
+
+  if (length == 0 || length >= sizeof(payload)) {
+    Serial.println("Section sensor telemetry payload too large");
+    return;
+  }
+
+  if (enqueue_telemetry(payload, route)) {
+    Serial.println("Section sensor telemetry queued");
   }
 }
 
@@ -477,9 +517,12 @@ void queue_section_status_telemetry(
   doc["section_id"] = pkt->section_id;
   doc["node_id"] = pkt->node_id;
   doc["device_client_id"] = pkt->device_client_id;
+  doc["alive"] = pkt->status.alive;
   doc["valve_state"] = pkt->status.valve_state;
   doc["spray_state"] = pkt->status.spray_state;
   doc["fertilizer_state"] = pkt->status.fertilizer_state;
+  doc["uptime_ms"] = pkt->status.uptime_ms;
+  doc["packets_sent"] = pkt->status.packets_sent;
 
   char payload[384];
   size_t length =
@@ -493,174 +536,42 @@ void queue_section_status_telemetry(
   enqueue_telemetry(payload, route);
 }
 
-void weather_to_features(
-  const weather_payload_t &weather,
-  float *features
-) {
-  features[0] = weather.temperature_2m;
-  features[1] = weather.relative_humidity_2m;
-  features[2] = weather.vapour_pressure_deficit_kpa;
-  features[3] = weather.soil_temperature_0_to_7cm;
-  features[4] = weather.soil_moisture_0_to_7cm;
-  features[5] = weather.shortwave_radiation;
-  features[6] = weather.et0_fao_evapotranspiration;
-}
-
 /* ============================
-   AI MODEL INIT
+   IRRIGATION CONTROL ALGORITHM
 ============================ */
 
-void init_rainfall_model() {
-  rainfall_model =
-    tflite::GetModel(
-      hourly_rainfall_forecaster_tflite
-    );
-
-  if (
-    rainfall_model->version() !=
-    TFLITE_SCHEMA_VERSION
-  ) {
-    Serial.println("Rainfall model schema mismatch");
-    return;
-  }
-
-  if (rainfall_resolver.AddFullyConnected() != kTfLiteOk) {
-    Serial.println("Failed to add FullyConnected op");
-    return;
-  }
-
-  static tflite::MicroInterpreter interpreter(
-    rainfall_model,
-    rainfall_resolver,
-    tensor_arena,
-    TENSOR_ARENA_SIZE
-  );
-
-  rainfall_interpreter = &interpreter;
-
-  if (rainfall_interpreter->AllocateTensors() != kTfLiteOk) {
-    Serial.println("Rainfall tensor allocation failed");
-    return;
-  }
-
-  rainfall_input = rainfall_interpreter->input(0);
-  rainfall_amount_output = rainfall_interpreter->output(0);
-
-  if (
-    rainfall_input->type != kTfLiteFloat32 ||
-    rainfall_input->dims->size != 2 ||
-    rainfall_input->dims->data[1] !=
-      HOURLY_RAINFALL_FEATURE_COUNT
-  ) {
-    Serial.println("Rainfall model input shape mismatch");
-    return;
-  }
-
-  if (rainfall_amount_output->type != kTfLiteFloat32) {
-    Serial.println("Rainfall model output type mismatch");
-    return;
-  }
-
-  rainfall_model_ready = true;
-  Serial.println("Rainfall ML model ready");
-}
-
-bool update_rainfall_forecast(
-  const weather_payload_t &weather
+control_payload_t calculate_irrigation_control(
+  const sensor_readings_t &sensors
 ) {
-  if (!rainfall_model_ready) {
-    latest_rainfall_forecast.valid = false;
-    return false;
+  control_payload_t control = {};
+
+  if (
+    (sensors.valid_fields & SENSOR_SOIL_MOISTURE_VALID) == 0
+  ) {
+    Serial.println("Skipping automatic irrigation: soil moisture invalid");
+    return control;
   }
 
-  float features[HOURLY_RAINFALL_FEATURE_COUNT];
-  weather_to_features(weather, features);
+  float soil_moisture_percent =
+    clamp_float(sensors.soil_moisture_percent, 0.0f, 100.0f);
 
-  for (int i = 0; i < HOURLY_RAINFALL_FEATURE_COUNT; i++) {
-    rainfall_input->data.f[i] =
+  if (
+    soil_moisture_percent <=
+    SOIL_MOISTURE_IRRIGATION_THRESHOLD_PERCENT
+  ) {
+    float dryness =
       (
-        features[i] -
-        HOURLY_RAINFALL_X_MEAN[i]
-      ) / HOURLY_RAINFALL_X_STD[i];
-  }
+        SOIL_MOISTURE_IRRIGATION_THRESHOLD_PERCENT -
+        soil_moisture_percent
+      ) / SOIL_MOISTURE_IRRIGATION_THRESHOLD_PERCENT;
 
-  if (rainfall_interpreter->Invoke() != kTfLiteOk) {
-    latest_rainfall_forecast.valid = false;
-    Serial.println("Rainfall inference failed");
-    return false;
-  }
-
-  float amount_scaled =
-    rainfall_amount_output->data.f[0];
-
-  float amount_log =
-    amount_scaled *
-    HOURLY_RAINFALL_Y_AMOUNT_STD +
-    HOURLY_RAINFALL_Y_AMOUNT_MEAN;
-
-  float rainfall_mm = expm1f(amount_log);
-
-  latest_rainfall_forecast.precipitation_mm =
-    rainfall_mm > 0.0f ? rainfall_mm : 0.0f;
-  latest_rainfall_forecast.valid = true;
-
-  Serial.printf(
-    "ML precipitation forecast: %.2f mm\n",
-    latest_rainfall_forecast.precipitation_mm
-  );
-
-  return true;
-}
-
-/* ============================
-   AI DECISION ENGINE
-============================ */
-
-control_payload_t run_ai_model(
-  const weather_payload_t &weather
-) {
-  control_payload_t control;
-
-  control.irrigate = false;
-  control.spray_pesticide = false;
-  control.apply_fertilizer = false;
-  control.irrigation_duration_sec = 0;
-
-  update_rainfall_forecast(weather);
-
-  float forecast_amount_mm =
-    latest_rainfall_forecast.valid ?
-    latest_rainfall_forecast.precipitation_mm :
-    0.0f;
-
-  bool rain_expected =
-    forecast_amount_mm >=
-    RAIN_AMOUNT_BLOCK_THRESHOLD_MM;
-
-  if (
-    !rain_expected &&
-    weather.et0_fao_evapotranspiration >= 0.20f &&
-    weather.shortwave_radiation >= 300.0f &&
-    weather.relative_humidity_2m <= 70.0f
-  ) {
     control.irrigate = true;
-
-    float evap_pressure =
-      clamp_float(
-        weather.et0_fao_evapotranspiration,
-        0.20f,
-        0.60f
-      );
-
     control.irrigation_duration_sec =
       MIN_IRRIGATION_DURATION_SEC +
-      (uint16_t)(
-        (evap_pressure - 0.20f) *
-        (
-          MAX_IRRIGATION_DURATION_SEC -
-          MIN_IRRIGATION_DURATION_SEC
-        ) / 0.40f
-      );
+      (uint16_t)(dryness * (
+        MAX_IRRIGATION_DURATION_SEC -
+        MIN_IRRIGATION_DURATION_SEC
+      ));
   }
 
   return control;
@@ -1058,7 +969,7 @@ bool connect_thingsboard_route(
 
   bool connected =
     mqtt.connect(
-      route->thingsboard_client_id,
+      route->thingsboard_client_id
     );
 
   if (!connected) {
@@ -1201,11 +1112,45 @@ void publish_queued_telemetry() {
   }
 }
 
+void register_section(
+  uint8_t section_id,
+  const uint8_t *section_mac
+) {
+  memcpy(sections[section_id].mac, section_mac, 6);
+  sections[section_id].active = true;
+  add_section_peer(section_mac);
+}
+
+void print_sensor_readings(
+  const sensor_readings_t &readings
+) {
+  Serial.printf(
+    "ambient_temperature_c: %.2f\n",
+    readings.ambient_temperature_c
+  );
+  Serial.printf(
+    "ambient_humidity_percent: %.2f\n",
+    readings.ambient_humidity_percent
+  );
+  Serial.printf(
+    "soil_moisture_adc: %u\n",
+    readings.soil_moisture_adc
+  );
+  Serial.printf(
+    "soil_moisture_percent: %.2f\n",
+    readings.soil_moisture_percent
+  );
+  Serial.printf(
+    "soil_temperature_c: %.2f\n",
+    readings.soil_temperature_c
+  );
+}
+
 /* ============================
-   HANDLE WEATHER PACKET
+   HANDLE SENSOR PACKETS
 ============================ */
 
-void handle_weather_packet(
+void handle_sensor_packet(
   farm_packet_t *pkt,
   const uint8_t *section_mac
 ) {
@@ -1215,52 +1160,64 @@ void handle_weather_packet(
     pkt->node_id >= MAX_SENSOR_NODES ||
     pkt->section_id >= MAX_SECTIONS
   ) {
-    Serial.println("Weather packet index out of range");
+    Serial.println("Sensor packet index out of range");
     return;
   }
 
-  memcpy(
-    sections[pkt->section_id].mac,
-    section_mac,
-    6
-  );
+  register_section(pkt->section_id, section_mac);
 
-  sections[pkt->section_id].active = true;
-  add_section_peer(section_mac);
-
-  weather_cache_t *cache =
-    &weather_cache[pkt->node_id];
-
+  sensor_cache_t *cache =
+    &sensor_cache[pkt->section_id][pkt->node_id];
   cache->valid = true;
-  cache->section_id = pkt->section_id;
-  cache->latest = pkt->weather;
-  cache->history[cache->next_index] = pkt->weather;
-  cache->next_index =
-    (cache->next_index + 1) %
-    WEATHER_HISTORY_LENGTH;
-
-  if (cache->count < WEATHER_HISTORY_LENGTH) {
-    cache->count++;
-  }
+  cache->latest = pkt->sensor_data;
 
   Serial.printf(
-    "Weather packet from Section %d Node %d stored (%d/%d samples)\n",
+    "Sensor packet from Section %d Node %d stored\n",
     pkt->section_id,
-    pkt->node_id,
-    cache->count,
-    WEATHER_HISTORY_LENGTH
+    pkt->node_id
   );
-  Serial.print("Weather client_id: ");
+  Serial.print("Sensor client_id: ");
   Serial.println(pkt->device_client_id);
-  Serial.printf("temperature_2m: %.2f\n", pkt->weather.temperature_2m);
-  Serial.printf("relative_humidity_2m: %.2f\n", pkt->weather.relative_humidity_2m);
-  Serial.printf("vapour_pressure_deficit_kpa: %.3f\n", pkt->weather.vapour_pressure_deficit_kpa);
-  Serial.printf("soil_temperature_0_to_7cm: %.2f\n", pkt->weather.soil_temperature_0_to_7cm);
-  Serial.printf("soil_moisture_0_to_7cm: %.3f\n", pkt->weather.soil_moisture_0_to_7cm);
-  Serial.printf("et0_fao_evapotranspiration: %.3f\n", pkt->weather.et0_fao_evapotranspiration);
-  Serial.printf("shortwave_radiation: %.2f\n", pkt->weather.shortwave_radiation);
+  print_sensor_readings(pkt->sensor_data);
 
-  queue_weather_telemetry(pkt);
+  queue_sensor_telemetry(pkt);
+}
+
+void handle_section_sensor_packet(
+  farm_packet_t *pkt,
+  const uint8_t *section_mac
+) {
+  pkt->device_client_id[DEVICE_CLIENT_ID_LENGTH - 1] = '\0';
+
+  if (pkt->section_id >= MAX_SECTIONS) {
+    Serial.println("Section sensor packet index out of range");
+    return;
+  }
+
+  register_section(pkt->section_id, section_mac);
+
+  sensor_cache_t *cache =
+    &section_sensor_cache[pkt->section_id];
+  cache->valid = true;
+  cache->latest = pkt->section_data.sensors;
+
+  Serial.printf(
+    "Section %d sensor packet stored\n",
+    pkt->section_id
+  );
+  Serial.print("Section client_id: ");
+  Serial.println(pkt->device_client_id);
+  print_sensor_readings(pkt->section_data.sensors);
+  Serial.printf(
+    "water_flow_rate_l_min: %.3f\n",
+    pkt->section_data.water_flow_rate_l_min
+  );
+  Serial.printf(
+    "total_water_volume_l: %.3f\n",
+    pkt->section_data.total_water_volume_l
+  );
+
+  queue_section_sensor_telemetry(pkt);
 }
 
 /* ============================
@@ -1275,9 +1232,12 @@ void handle_status_packet(
   Serial.printf("Section %d status:\n", pkt->section_id);
   Serial.print("Section client_id: ");
   Serial.println(pkt->device_client_id);
+  Serial.printf("Alive: %s\n", pkt->status.alive ? "YES" : "NO");
   Serial.printf("Valve: %s\n", pkt->status.valve_state ? "ON" : "OFF");
   Serial.printf("Spray: %s\n", pkt->status.spray_state ? "ON" : "OFF");
   Serial.printf("Fertilizer: %s\n", pkt->status.fertilizer_state ? "ON" : "OFF");
+  Serial.printf("Uptime: %lu ms\n", pkt->status.uptime_ms);
+  Serial.printf("Packets sent: %lu\n", pkt->status.packets_sent);
 
   queue_section_status_telemetry(pkt);
 }
@@ -1291,8 +1251,11 @@ bool packet_size_is_valid(
   }
 
   switch (type) {
-    case MSG_WEATHER_DATA:
-      return len == FARM_PACKET_WEATHER_SIZE;
+    case MSG_SENSOR_DATA:
+      return len == FARM_PACKET_SENSOR_SIZE;
+
+    case MSG_SECTION_DATA:
+      return len == FARM_PACKET_SECTION_SIZE;
 
     case MSG_CONTROL_CMD:
       return len == FARM_PACKET_CONTROL_SIZE;
@@ -1341,8 +1304,15 @@ void on_data_recv(
   }
 
   switch (pkt.type) {
-    case MSG_WEATHER_DATA:
-      handle_weather_packet(
+    case MSG_SENSOR_DATA:
+      handle_sensor_packet(
+        &pkt,
+        recv_info->src_addr
+      );
+      break;
+
+    case MSG_SECTION_DATA:
+      handle_section_sensor_packet(
         &pkt,
         recv_info->src_addr
       );
@@ -1387,7 +1357,9 @@ void on_data_sent(
 void init_espnow() {
   if (esp_now_init() != ESP_OK) {
     Serial.println("ESP-NOW init failed");
-    ESP.restart();
+    while (true) {
+      delay(1000);
+    }
   }
 
   esp_now_register_recv_cb(on_data_recv);
@@ -1398,23 +1370,57 @@ void init_espnow() {
    CONTROL LOOP
 ============================ */
 
-void process_control_cycle() {
-  for (int i = 0; i < MAX_SENSOR_NODES; i++) {
-    if (!weather_cache[i].valid) {
-      continue;
-    }
+bool select_driest_section_reading(
+  uint8_t section_id,
+  sensor_readings_t *selected
+) {
+  bool found = false;
 
-    uint8_t section_id =
-      weather_cache[i].section_id;
+  if (
+    section_sensor_cache[section_id].valid &&
+    (
+      section_sensor_cache[section_id].latest.valid_fields &
+      SENSOR_SOIL_MOISTURE_VALID
+    ) != 0
+  ) {
+    *selected = section_sensor_cache[section_id].latest;
+    found = true;
+  }
+
+  for (int node_id = 0; node_id < MAX_SENSOR_NODES; node_id++) {
+    sensor_cache_t *cache =
+      &sensor_cache[section_id][node_id];
 
     if (
-      section_id >= MAX_SECTIONS ||
-      !sections[section_id].active
+      !cache->valid ||
+      (
+        cache->latest.valid_fields &
+        SENSOR_SOIL_MOISTURE_VALID
+      ) == 0
     ) {
       continue;
     }
 
-    control_payload_t control;
+    if (
+      !found ||
+      cache->latest.soil_moisture_percent <
+        selected->soil_moisture_percent
+    ) {
+      *selected = cache->latest;
+      found = true;
+    }
+  }
+
+  return found;
+}
+
+void process_control_cycle() {
+  for (uint8_t section_id = 0; section_id < MAX_SECTIONS; section_id++) {
+    if (!sections[section_id].active) {
+      continue;
+    }
+
+    control_payload_t control = {};
 
     if (manual_controls[section_id].active) {
       control = manual_controls[section_id].control;
@@ -1423,10 +1429,28 @@ void process_control_cycle() {
         section_id
       );
     } else {
-      control =
-        run_ai_model(
-          weather_cache[i].latest
+      sensor_readings_t driest_reading = {};
+
+      if (
+        !select_driest_section_reading(
+          section_id,
+          &driest_reading
+        )
+      ) {
+        Serial.printf(
+          "No valid soil moisture for section %d\n",
+          section_id
         );
+        continue;
+      }
+
+      control = calculate_irrigation_control(driest_reading);
+
+      Serial.printf(
+        "Section %d driest soil moisture: %.2f%%\n",
+        section_id,
+        driest_reading.soil_moisture_percent
+      );
     }
 
     uint8_t section_mac[6];
@@ -1451,8 +1475,6 @@ void process_control_cycle() {
 
 void setup() {
   Serial.begin(115200);
-
-  init_rainfall_model();
 
   mqtt.setServer(
     THINGSBOARD_SERVER,

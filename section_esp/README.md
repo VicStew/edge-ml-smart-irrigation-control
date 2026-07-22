@@ -1,43 +1,42 @@
 # Section ESP32 Firmware
 
-This folder contains the firmware for a section controller ESP32. A section node sits between sensor nodes and the master node. It forwards weather readings upward to the master and applies control commands to local output pins for irrigation, pesticide spraying, and fertilizer control.
+A section node reads its own sensors, measures irrigation water flow, forwards sensor-node readings, and applies actuator commands received from the master over ESP-NOW.
 
-## Execution Order
+## Sensors and libraries
 
-1. Flash the master ESP32 from `../master_esp` or at least confirm the master MAC address.
+- AM2301A ambient temperature/humidity sensor using `DHTNEW`
+- Analog soil-moisture probe using the ESP32 ADC
+- DS18B20 soil-temperature sensor using `OneWire` and `DallasTemperature`
+- ZJ-G1 pulse-output water-flow sensor using `FlowSensor`
 
-2. Edit `section_esp.ino`:
+Install `DHTNEW`, `OneWire`, `DallasTemperature`, and `FlowSensor` before compiling.
 
-   - Set `SECTION_ID` for this physical section.
-   - Set `master_mac` to the WiFi station MAC address of the master ESP32.
-   - Confirm `WIFI_CHANNEL` matches the master and sensor nodes.
-   - Confirm `VALVE_PIN`, `SPRAY_PIN`, and `FERTILIZER_PIN` match the wiring.
+## Default wiring
 
-3. Open `section_esp.ino` in the Arduino IDE, PlatformIO, or another ESP32 Arduino build environment.
+| Device | ESP32 pin |
+| --- | ---: |
+| Soil-moisture analog output | GPIO 0 |
+| ZJ-G1 pulse output | GPIO 1 |
+| DS18B20 data | GPIO 3 |
+| AM2301A data | GPIO 4 |
+| Irrigation valve output | GPIO 5 |
+| Pesticide spray output | GPIO 6 |
+| Fertilizer output | GPIO 7 |
 
-4. Flash the sketch to the section ESP32.
+These are ESP32-C3 defaults. Update the pin definitions for the board and driver circuit being used. Do not connect a 5 V flow-sensor output directly to an ESP32 input; use an open-collector pull-up to 3.3 V or suitable level shifting.
 
-5. Power the master and this section node.
+## Calibration and configuration
 
-6. Flash and power sensor nodes from `../sensor_esp`, using this section node's MAC address as their destination.
+1. Set `SECTION_ID`, `SECTION_NODE_CLIENT_ID`, `master_mac`, and `WIFI_CHANNEL`.
+2. Calibrate the soil probe and update `SOIL_MOISTURE_DRY_ADC` and `SOIL_MOISTURE_WET_ADC`.
+3. `FLOW_SENSOR_PULSES_PER_LITER` defaults to 60, corresponding to the commonly specified ZJ/YF-G1 relation `F(Hz) = Q(L/min)`. Verify the exact sensor label/datasheet and calibrate it with a known water volume before relying on totals.
+4. Confirm the valve, spray, and fertilizer outputs drive suitable relay/MOSFET stages rather than the loads directly.
 
-## Runtime Flow
+## Runtime flow
 
-1. `setup()` starts serial output, sets WiFi station mode, initializes GPIO outputs, and starts ESP-NOW.
-2. Sensor nodes send weather packets to the section node.
-3. `handle_weather_packet()` remembers the sensor peer, rewrites the packet source and destination, sets the section ID, and forwards the weather packet, including vapour pressure deficit, to the master.
-4. The master sends `MSG_CONTROL_CMD` packets back to this section node.
-5. `handle_control_packet()` updates the valve, spray, and fertilizer GPIO pins.
-6. `send_status()` periodically reports output state back to the master.
-
-## Files
-
-- `section_esp.ino` - Complete firmware for the section controller. It contains packet definitions, ESP-NOW peer handling, weather forwarding, control command handling, GPIO output control, and periodic status reporting.
-
-## Configuration Notes
-
-- Each physical section should use a unique `SECTION_ID`.
-- Update `master_mac` before flashing. The hard-coded value must match the master ESP32 station MAC.
-- The section node dynamically remembers sensor peers when they send weather or heartbeat packets.
-- Long irrigation commands currently block inside `delay()`, so the node will not process other messages until the valve cycle finishes.
-- The packet structure must stay compatible with `master_esp.ino` and `sensor_esp.ino`.
+1. Flow pulses are counted by an interrupt and converted to L/min and accumulated liters once per second.
+2. The section reads its AM2301A, soil-moisture probe, and DS18B20 every five seconds, then sends those readings plus flow data to the master.
+3. Sensor-node packets are forwarded to the master while preserving the sensor node ID and ThingsBoard client ID.
+4. Master control packets update the valve, spray, and fertilizer outputs.
+5. Timed irrigation is non-blocking; the valve closes when its requested duration expires while communications continue.
+6. Section status, uptime, and packet count are sent every ten seconds.
