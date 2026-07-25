@@ -18,26 +18,26 @@
 #define NODE_ID 1
 #define SECTION_ID 1
 
-#define AM2301A_PIN 4
-#define SOIL_MOISTURE_ADC_PIN 0
-#define DS18B20_PIN 3
+#define AM2301A_PIN 27
+#define SOIL_MOISTURE_ADC_PIN 36
+#define DS18B20_PIN 14
 
-#define SOIL_MOISTURE_DRY_ADC 3000
-#define SOIL_MOISTURE_WET_ADC 1200
+#define SOIL_MOISTURE_DRY_ADC 4095
+#define SOIL_MOISTURE_WET_ADC 0
 #define SOIL_MOISTURE_SAMPLE_COUNT 8
 
 #define SEND_INTERVAL_MS 5000
 #define HEARTBEAT_INTERVAL_MS 15000
 #define DEVICE_CLIENT_ID_LENGTH 40
 
-const char SENSOR_NODE_CLIENT_ID[] = "";
+const char SENSOR_NODE_CLIENT_ID[] = "0trhe202q8u4wxegyzkf";
 
 /* ============================
    SECTION NODE MAC
 ============================ */
 
 uint8_t section_mac[6] = {
-  0x3C, 0xE9, 0x0E, 0x94, 0xA6, 0x88
+  0x28, 0x05, 0xA5, 0x2B, 0xF3, 0x0C
 };
 
 /* ============================
@@ -45,7 +45,7 @@ uint8_t section_mac[6] = {
 ============================ */
 
 DHTNEW ambient_sensor(AM2301A_PIN);
-OneWire soil_temperature_bus(DS18B20_PIN);
+OneWire  soil_temperature_bus(DS18B20_PIN);
 DallasTemperature soil_temperature_sensor(&soil_temperature_bus);
 
 /* ============================

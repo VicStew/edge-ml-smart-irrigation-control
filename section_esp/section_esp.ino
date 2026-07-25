@@ -17,17 +17,15 @@
 #define WIFI_CHANNEL 4
 #define SECTION_ID 1
 
-#define AM2301A_PIN 4
-#define SOIL_MOISTURE_ADC_PIN 0
-#define DS18B20_PIN 3
-#define WATER_FLOW_PIN 1
+#define AM2301A_PIN 26
+#define SOIL_MOISTURE_ADC_PIN 34
+#define DS18B20_PIN 25
+#define WATER_FLOW_PIN 32
 
 #define VALVE_PIN 5
-#define SPRAY_PIN 6
-#define FERTILIZER_PIN 7
 
-#define SOIL_MOISTURE_DRY_ADC 3000
-#define SOIL_MOISTURE_WET_ADC 1200
+#define SOIL_MOISTURE_DRY_ADC 4095
+#define SOIL_MOISTURE_WET_ADC 0
 #define SOIL_MOISTURE_SAMPLE_COUNT 8
 
 // The ZJ-G1 datasheet calibration is F(Hz) = 1 * Q(L/min), or 60 pulses/L.
@@ -40,14 +38,14 @@
 #define MAX_SENSOR_PEERS 16
 #define DEVICE_CLIENT_ID_LENGTH 40
 
-const char SECTION_NODE_CLIENT_ID[] = "";
+const char SECTION_NODE_CLIENT_ID[] = "bkwuzcjmz5x2p1gm33zq";
 
 /* ============================
    MASTER MAC
 ============================ */
 
 uint8_t master_mac[6] = {
-  0x98, 0xA3, 0x16, 0xC9, 0x3F, 0x2C
+  0xD4, 0xE9, 0xF4, 0x71, 0x97, 0x44
 };
 
 /* ============================
@@ -504,9 +502,6 @@ void handle_control_packet(farm_packet_t *pkt) {
       ((unsigned long)pkt->control.irrigation_duration_sec * 1000UL);
   }
 
-  digitalWrite(SPRAY_PIN, spray_state ? HIGH : LOW);
-  digitalWrite(FERTILIZER_PIN, fertilizer_state ? HIGH : LOW);
-
   Serial.printf("Valve: %s\n", valve_state ? "ON" : "OFF");
   Serial.printf("Spray: %s\n", spray_state ? "ON" : "OFF");
   Serial.printf("Fertilizer: %s\n", fertilizer_state ? "ON" : "OFF");
@@ -614,12 +609,8 @@ void init_espnow() {
 
 void init_gpio() {
   pinMode(VALVE_PIN, OUTPUT);
-  pinMode(SPRAY_PIN, OUTPUT);
-  pinMode(FERTILIZER_PIN, OUTPUT);
 
   digitalWrite(VALVE_PIN, LOW);
-  digitalWrite(SPRAY_PIN, LOW);
-  digitalWrite(FERTILIZER_PIN, LOW);
 }
 
 void setup() {

@@ -25,8 +25,8 @@
 #define MAX_SECTIONS 10
 #define MAX_SENSOR_NODES 32
 
-#define SIM800_RX_PIN 16
-#define SIM800_TX_PIN 17
+#define SIM800_RX_PIN 25
+#define SIM800_TX_PIN 26
 #define SIM800_BAUD 9600
 
 #define THINGSBOARD_PORT 1883
@@ -1234,8 +1234,6 @@ void handle_status_packet(
   Serial.println(pkt->device_client_id);
   Serial.printf("Alive: %s\n", pkt->status.alive ? "YES" : "NO");
   Serial.printf("Valve: %s\n", pkt->status.valve_state ? "ON" : "OFF");
-  Serial.printf("Spray: %s\n", pkt->status.spray_state ? "ON" : "OFF");
-  Serial.printf("Fertilizer: %s\n", pkt->status.fertilizer_state ? "ON" : "OFF");
   Serial.printf("Uptime: %lu ms\n", pkt->status.uptime_ms);
   Serial.printf("Packets sent: %lu\n", pkt->status.packets_sent);
 
