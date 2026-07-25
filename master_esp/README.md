@@ -15,8 +15,8 @@ TensorFlow Lite Micro is no longer required by the firmware.
 
 ## Setup
 
-1. Configure the SIM800L pins, APN, ThingsBoard server, client IDs, and `THINGSBOARD_ROUTES` in `master_esp.ino`.
-2. Set each sensor and section sketch's `*_NODE_CLIENT_ID` to the matching route.
+1. Configure the SIM800L pins, APN, ThingsBoard server, and master client ID in `master_esp.ino`.
+2. Set each sensor and section sketch's `*_NODE_CLIENT_ID` to that device's ThingsBoard MQTT client ID.
 3. Keep `WIFI_CHANNEL`, `DEVICE_CLIENT_ID_LENGTH`, message types, and packet structs identical in all three sketches.
 4. Flash the master, section nodes, and sensor nodes.
 
@@ -47,7 +47,7 @@ At or below the threshold, irrigation starts for a duration scaled between `MIN_
 
 ## ThingsBoard telemetry
 
-Sensor telemetry is routed using the packet's `device_client_id`. Section status telemetry also includes valve, spray, fertilizer, uptime, alive state, and packets sent.
+The master uses each packet's `device_client_id` directly as the ThingsBoard MQTT client ID, so adding a node does not require a routing-table entry in the master firmware. Section status telemetry also includes valve, spray, fertilizer, uptime, alive state, and packets sent.
 
 Manual control uses a shared `manual_control` (or `manualControl`) object:
 

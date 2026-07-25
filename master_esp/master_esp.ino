@@ -34,7 +34,6 @@
 #define TELEMETRY_QUEUE_LENGTH 8
 #define TELEMETRY_PAYLOAD_SIZE 512
 #define DEVICE_CLIENT_ID_LENGTH 40
-#define THINGSBOARD_CREDENTIAL_LENGTH 48
 #define GSM_RECONNECT_INTERVAL_MS 30000
 #define MQTT_RECONNECT_INTERVAL_MS 10000
 
@@ -45,46 +44,10 @@ const char GPRS_PASS[] = "";
 
 const char THINGSBOARD_SERVER[] = "mqtt.eu.thingsboard.cloud";
 const char MASTER_NODE_CLIENT_ID[] = "h0kqq9jqtrpufa6fxk9g";
-const char MASTER_THINGSBOARD_CLIENT_ID[] = "h0kqq9jqtrpufa6fxk9g";
-
-const char SENSOR_1_NODE_CLIENT_ID[] = "sensor-1";
-const char SENSOR_1_THINGSBOARD_CLIENT_ID[] = "sensor-1-mqtt-client";
-
-const char SECTION_1_NODE_CLIENT_ID[] = "section-1";
-const char SECTION_1_THINGSBOARD_CLIENT_ID[] = "section-1-mqtt-client";
 
 const char TB_TELEMETRY_TOPIC[] = "v1/devices/me/telemetry";
 const char TB_ATTRIBUTES_TOPIC[] = "v1/devices/me/attributes";
 const char TB_ATTRIBUTES_RESPONSE_TOPIC[] = "v1/devices/me/attributes/response/+";
-
-typedef struct {
-  const char *node_client_id;
-  const char *thingsboard_client_id;
-  bool subscribe_for_commands;
-} thingsboard_route_t;
-
-const thingsboard_route_t MASTER_THINGSBOARD_ROUTE = {
-  MASTER_NODE_CLIENT_ID,
-  MASTER_THINGSBOARD_CLIENT_ID,
-  true
-};
-
-const thingsboard_route_t THINGSBOARD_ROUTES[] = {
-  {
-    SENSOR_1_NODE_CLIENT_ID,
-    SENSOR_1_THINGSBOARD_CLIENT_ID,
-    false
-  },
-  {
-    SECTION_1_NODE_CLIENT_ID,
-    SECTION_1_THINGSBOARD_CLIENT_ID,
-    false
-  }
-};
-
-const size_t THINGSBOARD_ROUTE_COUNT =
-  sizeof(THINGSBOARD_ROUTES) /
-  sizeof(THINGSBOARD_ROUTES[0]);
 
 /* ============================
    MESSAGE TYPES
@@ -235,8 +198,7 @@ PubSubClient mqtt(gsm_client);
 
 typedef struct {
   bool pending;
-  char node_client_id[DEVICE_CLIENT_ID_LENGTH];
-  char thingsboard_client_id[THINGSBOARD_CREDENTIAL_LENGTH];
+  char device_client_id[DEVICE_CLIENT_ID_LENGTH];
   char payload[TELEMETRY_PAYLOAD_SIZE];
 } telemetry_message_t;
 
@@ -246,11 +208,10 @@ uint8_t telemetry_queue_tail = 0;
 uint8_t telemetry_queue_count = 0;
 
 bool modem_ready = false;
-bool mqtt_subscribed = false;
 uint32_t last_gsm_reconnect_attempt = 0;
 uint32_t last_mqtt_reconnect_attempt = 0;
 uint32_t shared_attribute_request_id = 1;
-char active_thingsboard_node_client_id[DEVICE_CLIENT_ID_LENGTH] = "";
+char active_thingsboard_client_id[DEVICE_CLIENT_ID_LENGTH] = "";
 
 /* ============================
    TIMERS
@@ -298,36 +259,6 @@ bool text_is_empty(
   return !text || text[0] == '\0';
 }
 
-const thingsboard_route_t *find_thingsboard_route(
-  const char *node_client_id
-) {
-  if (text_is_empty(node_client_id)) {
-    return nullptr;
-  }
-
-  if (
-    strcmp(
-      node_client_id,
-      MASTER_THINGSBOARD_ROUTE.node_client_id
-    ) == 0
-  ) {
-    return &MASTER_THINGSBOARD_ROUTE;
-  }
-
-  for (size_t i = 0; i < THINGSBOARD_ROUTE_COUNT; i++) {
-    if (
-      strcmp(
-        node_client_id,
-        THINGSBOARD_ROUTES[i].node_client_id
-      ) == 0
-    ) {
-      return &THINGSBOARD_ROUTES[i];
-    }
-  }
-
-  return nullptr;
-}
-
 float clamp_float(
   float value,
   float low,
@@ -366,10 +297,10 @@ void add_section_peer(
 
 bool enqueue_telemetry(
   const char *payload,
-  const thingsboard_route_t *route
+  const char *device_client_id
 ) {
-  if (!route) {
-    Serial.println("Telemetry route missing");
+  if (text_is_empty(device_client_id)) {
+    Serial.println("Telemetry client_id missing");
     return false;
   }
 
@@ -382,14 +313,9 @@ bool enqueue_telemetry(
     &telemetry_queue[telemetry_queue_tail];
 
   copy_text(
-    message->node_client_id,
-    sizeof(message->node_client_id),
-    route->node_client_id
-  );
-  copy_text(
-    message->thingsboard_client_id,
-    sizeof(message->thingsboard_client_id),
-    route->thingsboard_client_id
+    message->device_client_id,
+    sizeof(message->device_client_id),
+    device_client_id
   );
   copy_text(
     message->payload,
@@ -409,15 +335,6 @@ bool enqueue_telemetry(
 void queue_sensor_telemetry(
   const farm_packet_t *pkt
 ) {
-  const thingsboard_route_t *route =
-    find_thingsboard_route(pkt->device_client_id);
-
-  if (!route) {
-    Serial.print("No ThingsBoard route for sensor client_id: ");
-    Serial.println(pkt->device_client_id);
-    return;
-  }
-
   StaticJsonDocument<TELEMETRY_PAYLOAD_SIZE> doc;
 
   doc["section_id"] = pkt->section_id;
@@ -445,7 +362,7 @@ void queue_sensor_telemetry(
     return;
   }
 
-  if (enqueue_telemetry(payload, route)) {
+  if (enqueue_telemetry(payload, pkt->device_client_id)) {
     Serial.println("Sensor telemetry queued");
   }
 }
@@ -453,15 +370,6 @@ void queue_sensor_telemetry(
 void queue_section_sensor_telemetry(
   const farm_packet_t *pkt
 ) {
-  const thingsboard_route_t *route =
-    find_thingsboard_route(pkt->device_client_id);
-
-  if (!route) {
-    Serial.print("No ThingsBoard route for section client_id: ");
-    Serial.println(pkt->device_client_id);
-    return;
-  }
-
   StaticJsonDocument<TELEMETRY_PAYLOAD_SIZE> doc;
 
   doc["section_id"] = pkt->section_id;
@@ -495,7 +403,7 @@ void queue_section_sensor_telemetry(
     return;
   }
 
-  if (enqueue_telemetry(payload, route)) {
+  if (enqueue_telemetry(payload, pkt->device_client_id)) {
     Serial.println("Section sensor telemetry queued");
   }
 }
@@ -503,15 +411,6 @@ void queue_section_sensor_telemetry(
 void queue_section_status_telemetry(
   const farm_packet_t *pkt
 ) {
-  const thingsboard_route_t *route =
-    find_thingsboard_route(pkt->device_client_id);
-
-  if (!route) {
-    Serial.print("No ThingsBoard route for section client_id: ");
-    Serial.println(pkt->device_client_id);
-    return;
-  }
-
   StaticJsonDocument<384> doc;
 
   doc["section_id"] = pkt->section_id;
@@ -533,7 +432,7 @@ void queue_section_status_telemetry(
     return;
   }
 
-  enqueue_telemetry(payload, route);
+  enqueue_telemetry(payload, pkt->device_client_id);
 }
 
 /* ============================
@@ -742,7 +641,7 @@ void publish_manual_control_result(
     serializeJson(doc, payload, sizeof(payload));
 
   if (length > 0 && length < sizeof(payload)) {
-    enqueue_telemetry(payload, &MASTER_THINGSBOARD_ROUTE);
+    enqueue_telemetry(payload, MASTER_NODE_CLIENT_ID);
   }
 }
 
@@ -928,34 +827,34 @@ void request_shared_attributes() {
   mqtt.publish(topic, request);
 }
 
-bool route_matches_active_connection(
-  const thingsboard_route_t *route
+bool client_matches_active_connection(
+  const char *client_id
 ) {
   return (
     mqtt.connected() &&
-    route &&
+    !text_is_empty(client_id) &&
     strcmp(
-      active_thingsboard_node_client_id,
-      route->node_client_id
+      active_thingsboard_client_id,
+      client_id
     ) == 0
   );
 }
 
-bool connect_thingsboard_route(
-  const thingsboard_route_t *route
+bool connect_thingsboard(
+  const char *client_id,
+  bool subscribe_for_commands
 ) {
-  if (!route) {
+  if (text_is_empty(client_id)) {
     return false;
   }
 
-  if (route_matches_active_connection(route)) {
+  if (client_matches_active_connection(client_id)) {
     return true;
   }
 
   if (mqtt.connected()) {
     mqtt.disconnect();
-    mqtt_subscribed = false;
-    active_thingsboard_node_client_id[0] = '\0';
+    active_thingsboard_client_id[0] = '\0';
   }
 
   if (!connect_gprs()) {
@@ -964,12 +863,12 @@ bool connect_thingsboard_route(
 
   Serial.print("Connecting ThingsBoard MQTT: ");
   Serial.println(THINGSBOARD_SERVER);
-  Serial.print("Route client_id: ");
-  Serial.println(route->node_client_id);
+  Serial.print("Device client_id: ");
+  Serial.println(client_id);
 
   bool connected =
     mqtt.connect(
-      route->thingsboard_client_id
+      client_id
     );
 
   if (!connected) {
@@ -977,24 +876,20 @@ bool connect_thingsboard_route(
       "ThingsBoard MQTT failed, state=%d\n",
       mqtt.state()
     );
-    mqtt_subscribed = false;
-    active_thingsboard_node_client_id[0] = '\0';
+    active_thingsboard_client_id[0] = '\0';
     return false;
   }
 
   copy_text(
-    active_thingsboard_node_client_id,
-    sizeof(active_thingsboard_node_client_id),
-    route->node_client_id
+    active_thingsboard_client_id,
+    sizeof(active_thingsboard_client_id),
+    client_id
   );
 
-  if (route->subscribe_for_commands) {
+  if (subscribe_for_commands) {
     mqtt.subscribe(TB_ATTRIBUTES_TOPIC);
     mqtt.subscribe(TB_ATTRIBUTES_RESPONSE_TOPIC);
     request_shared_attributes();
-    mqtt_subscribed = true;
-  } else {
-    mqtt_subscribed = false;
   }
 
   Serial.println("ThingsBoard MQTT connected");
@@ -1002,7 +897,7 @@ bool connect_thingsboard_route(
 }
 
 bool connect_master_thingsboard() {
-  return connect_thingsboard_route(&MASTER_THINGSBOARD_ROUTE);
+  return connect_thingsboard(MASTER_NODE_CLIENT_ID, true);
 }
 
 void init_gsm_modem() {
@@ -1048,7 +943,7 @@ void maintain_thingsboard() {
     return;
   }
 
-  if (route_matches_active_connection(&MASTER_THINGSBOARD_ROUTE)) {
+  if (client_matches_active_connection(MASTER_NODE_CLIENT_ID)) {
     mqtt.loop();
     return;
   }
@@ -1075,16 +970,18 @@ void publish_queued_telemetry() {
     telemetry_message_t *message =
       &telemetry_queue[telemetry_queue_head];
 
-    thingsboard_route_t queued_route = {
-      message->node_client_id,
-      message->thingsboard_client_id,
+    bool is_master =
       strcmp(
-        message->node_client_id,
-        MASTER_THINGSBOARD_ROUTE.node_client_id
-      ) == 0
-    };
+        message->device_client_id,
+        MASTER_NODE_CLIENT_ID
+      ) == 0;
 
-    if (!connect_thingsboard_route(&queued_route)) {
+    if (
+      !connect_thingsboard(
+        message->device_client_id,
+        is_master
+      )
+    ) {
       return;
     }
 
@@ -1107,7 +1004,7 @@ void publish_queued_telemetry() {
     Serial.println("Telemetry published to ThingsBoard");
   }
 
-  if (!route_matches_active_connection(&MASTER_THINGSBOARD_ROUTE)) {
+  if (!client_matches_active_connection(MASTER_NODE_CLIENT_ID)) {
     connect_master_thingsboard();
   }
 }
