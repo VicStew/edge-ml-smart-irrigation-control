@@ -47,7 +47,7 @@ At or below the threshold, irrigation starts for a duration scaled between `MIN_
 
 ## ThingsBoard telemetry
 
-The master uses each packet's `device_client_id` directly as the ThingsBoard MQTT client ID, so adding a node does not require a routing-table entry in the master firmware. Section status telemetry also includes valve, spray, fertilizer, uptime, alive state, and packets sent.
+The master uses each packet's `device_client_id` directly as the ThingsBoard MQTT client ID, so adding a node does not require a routing-table entry in the master firmware. Section status telemetry includes the valve motion state, a `valve_open` flag, uptime, alive state, and packets sent.
 
 Manual control uses a shared `manual_control` (or `manualControl`) object:
 
@@ -56,10 +56,8 @@ Manual control uses a shared `manual_control` (or `manualControl`) object:
   "section_id": 1,
   "enabled": true,
   "irrigate": true,
-  "irrigation_duration_sec": 120,
-  "spray_pesticide": false,
-  "apply_fertilizer": false
+  "irrigation_duration_sec": 120
 }
 ```
 
-Set `enabled` to `false` to release the override and send an off command to the section.
+The duration begins after the valve finishes opening. Set `enabled` to `false` to release the override and send a close command to the section.

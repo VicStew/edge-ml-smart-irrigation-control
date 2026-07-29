@@ -22,7 +22,11 @@
 #define DS18B20_PIN 25
 #define WATER_FLOW_PIN 32
 
-#define VALVE_PIN 5
+#define VALVE_OPEN_RELAY_PIN 5
+#define VALVE_CLOSE_RELAY_PIN 27
+#define VALVE_RELAY_ON HIGH
+#define VALVE_RELAY_OFF LOW
+#define VALVE_TRAVEL_TIME_MS 24000UL
 
 #define SOIL_MOISTURE_DRY_ADC 4095
 #define SOIL_MOISTURE_WET_ADC 0
@@ -104,8 +108,6 @@ typedef struct {
 
 typedef struct {
   bool irrigate;
-  bool spray_pesticide;
-  bool apply_fertilizer;
   uint16_t irrigation_duration_sec;
 } __attribute__((packed)) control_payload_t;
 
@@ -113,11 +115,17 @@ typedef struct {
    STATUS PAYLOAD
 ============================ */
 
+enum valve_state_t : uint8_t {
+  VALVE_UNKNOWN = 0,
+  VALVE_CLOSED = 1,
+  VALVE_OPENING = 2,
+  VALVE_OPEN = 3,
+  VALVE_CLOSING = 4
+};
+
 typedef struct {
   bool alive;
-  bool valve_state;
-  bool spray_state;
-  bool fertilizer_state;
+  valve_state_t valve_state;
   uint32_t uptime_ms;
   uint32_t packets_sent;
 } __attribute__((packed)) status_payload_t;
@@ -147,6 +155,8 @@ typedef struct {
 
 static_assert(sizeof(sensor_readings_t) == 23, "Sensor payload layout changed");
 static_assert(sizeof(section_readings_t) == 31, "Section payload layout changed");
+static_assert(sizeof(control_payload_t) == 3, "Control payload layout changed");
+static_assert(sizeof(status_payload_t) == 10, "Status payload layout changed");
 static_assert(sizeof(farm_packet_t) == 90, "Farm packet layout changed");
 static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too large");
 
@@ -154,11 +164,16 @@ static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too
    GLOBAL STATE
 ============================ */
 
-bool valve_state = false;
-bool spray_state = false;
-bool fertilizer_state = false;
-bool valve_timer_active = false;
-unsigned long valve_off_time = 0;
+valve_state_t valve_state = VALVE_UNKNOWN;
+unsigned long valve_motion_started_ms = 0;
+bool irrigation_timer_active = false;
+unsigned long irrigation_started_ms = 0;
+uint16_t requested_irrigation_duration_sec = 0;
+
+portMUX_TYPE valve_command_mux = portMUX_INITIALIZER_UNLOCKED;
+volatile bool valve_command_pending = false;
+bool pending_irrigate = false;
+uint16_t pending_irrigation_duration_sec = 0;
 
 unsigned long last_sensor_time = 0;
 unsigned long last_flow_read_time = 0;
@@ -354,22 +369,154 @@ void print_sensor_readings(const sensor_readings_t &reading) {
   );
 }
 
-void set_valve_state(bool enabled) {
-  valve_state = enabled;
-  digitalWrite(VALVE_PIN, valve_state ? HIGH : LOW);
-
-  if (!valve_state) {
-    valve_timer_active = false;
+const char *valve_state_name(valve_state_t state) {
+  switch (state) {
+    case VALVE_CLOSED:
+      return "closed";
+    case VALVE_OPENING:
+      return "opening";
+    case VALVE_OPEN:
+      return "open";
+    case VALVE_CLOSING:
+      return "closing";
+    default:
+      return "unknown";
   }
 }
 
-void update_timed_outputs() {
-  if (
-    valve_timer_active &&
-    (long)(millis() - valve_off_time) >= 0
+void set_valve_relays(
+  bool open_relay_on,
+  bool close_relay_on
+) {
+  // Break before make: both relays are always released before one is enabled.
+  digitalWrite(VALVE_OPEN_RELAY_PIN, VALVE_RELAY_OFF);
+  digitalWrite(VALVE_CLOSE_RELAY_PIN, VALVE_RELAY_OFF);
+
+  if (open_relay_on == close_relay_on) {
+    return;
+  }
+
+  digitalWrite(
+    open_relay_on ? VALVE_OPEN_RELAY_PIN : VALVE_CLOSE_RELAY_PIN,
+    VALVE_RELAY_ON
+  );
+}
+
+void start_valve_motion(
+  valve_state_t motion,
+  unsigned long now
+) {
+  if (motion == VALVE_OPENING) {
+    set_valve_relays(true, false);
+  } else if (motion == VALVE_CLOSING) {
+    set_valve_relays(false, true);
+  } else {
+    set_valve_relays(false, false);
+    return;
+  }
+
+  valve_state = motion;
+  valve_motion_started_ms = now;
+  Serial.printf("Valve: %s\n", valve_state_name(valve_state));
+}
+
+void queue_valve_command(
+  bool irrigate,
+  uint16_t duration_sec
+) {
+  portENTER_CRITICAL(&valve_command_mux);
+  pending_irrigate = irrigate;
+  pending_irrigation_duration_sec = duration_sec;
+  valve_command_pending = true;
+  portEXIT_CRITICAL(&valve_command_mux);
+}
+
+bool take_valve_command(
+  bool *irrigate,
+  uint16_t *duration_sec
+) {
+  bool command_available;
+
+  portENTER_CRITICAL(&valve_command_mux);
+  command_available = valve_command_pending;
+
+  if (command_available) {
+    *irrigate = pending_irrigate;
+    *duration_sec = pending_irrigation_duration_sec;
+    valve_command_pending = false;
+  }
+
+  portEXIT_CRITICAL(&valve_command_mux);
+  return command_available;
+}
+
+void apply_valve_command(
+  bool irrigate,
+  uint16_t duration_sec,
+  unsigned long now
+) {
+  irrigation_timer_active = false;
+  requested_irrigation_duration_sec = irrigate ? duration_sec : 0;
+
+  if (irrigate) {
+    if (valve_state == VALVE_OPEN) {
+      irrigation_timer_active = duration_sec > 0;
+      irrigation_started_ms = now;
+    } else if (valve_state != VALVE_OPENING) {
+      start_valve_motion(VALVE_OPENING, now);
+    }
+  } else if (
+    valve_state != VALVE_CLOSED &&
+    valve_state != VALVE_CLOSING
   ) {
-    set_valve_state(false);
-    Serial.println("Timed irrigation cycle complete");
+    start_valve_motion(VALVE_CLOSING, now);
+  }
+
+  Serial.printf("Valve target: %s\n", irrigate ? "open" : "closed");
+
+  if (irrigate && duration_sec > 0) {
+    Serial.printf("Irrigation duration: %u sec after opening\n", duration_sec);
+  }
+
+  send_status();
+}
+
+void update_valve_control(unsigned long now) {
+  bool irrigate;
+  uint16_t duration_sec;
+
+  if (take_valve_command(&irrigate, &duration_sec)) {
+    apply_valve_command(irrigate, duration_sec, now);
+  }
+
+  if (
+    (valve_state == VALVE_OPENING || valve_state == VALVE_CLOSING) &&
+    now - valve_motion_started_ms >= VALVE_TRAVEL_TIME_MS
+  ) {
+    bool finished_opening = valve_state == VALVE_OPENING;
+
+    set_valve_relays(false, false);
+    valve_state = finished_opening ? VALVE_OPEN : VALVE_CLOSED;
+
+    if (finished_opening && requested_irrigation_duration_sec > 0) {
+      irrigation_timer_active = true;
+      irrigation_started_ms = now;
+    }
+
+    Serial.printf("Valve: %s\n", valve_state_name(valve_state));
+    send_status();
+  }
+
+  if (
+    valve_state == VALVE_OPEN &&
+    irrigation_timer_active &&
+    now - irrigation_started_ms >=
+      (unsigned long)requested_irrigation_duration_sec * 1000UL
+  ) {
+    irrigation_timer_active = false;
+    requested_irrigation_duration_sec = 0;
+    start_valve_motion(VALVE_CLOSING, now);
+    Serial.println("Timed irrigation complete; closing valve");
     send_status();
   }
 }
@@ -441,8 +588,6 @@ void send_status() {
   pkt.type = MSG_STATUS;
   pkt.status.alive = true;
   pkt.status.valve_state = valve_state;
-  pkt.status.spray_state = spray_state;
-  pkt.status.fertilizer_state = fertilizer_state;
   pkt.status.uptime_ms = millis();
   pkt.status.packets_sent = packets_sent;
 
@@ -487,33 +632,10 @@ void handle_sensor_packet(
 
 void handle_control_packet(farm_packet_t *pkt) {
   Serial.println("Control packet received");
-
-  spray_state = pkt->control.spray_pesticide;
-  fertilizer_state = pkt->control.apply_fertilizer;
-  set_valve_state(pkt->control.irrigate);
-
-  if (
-    valve_state &&
-    pkt->control.irrigation_duration_sec > 0
-  ) {
-    valve_timer_active = true;
-    valve_off_time =
-      millis() +
-      ((unsigned long)pkt->control.irrigation_duration_sec * 1000UL);
-  }
-
-  Serial.printf("Valve: %s\n", valve_state ? "ON" : "OFF");
-  Serial.printf("Spray: %s\n", spray_state ? "ON" : "OFF");
-  Serial.printf("Fertilizer: %s\n", fertilizer_state ? "ON" : "OFF");
-
-  if (valve_state) {
-    Serial.printf(
-      "Irrigation duration: %u sec\n",
-      pkt->control.irrigation_duration_sec
-    );
-  }
-
-  send_status();
+  queue_valve_command(
+    pkt->control.irrigate,
+    pkt->control.irrigation_duration_sec
+  );
 }
 
 void route_packet(
@@ -608,9 +730,12 @@ void init_espnow() {
 }
 
 void init_gpio() {
-  pinMode(VALVE_PIN, OUTPUT);
+  digitalWrite(VALVE_OPEN_RELAY_PIN, VALVE_RELAY_OFF);
+  digitalWrite(VALVE_CLOSE_RELAY_PIN, VALVE_RELAY_OFF);
+  pinMode(VALVE_OPEN_RELAY_PIN, OUTPUT);
+  pinMode(VALVE_CLOSE_RELAY_PIN, OUTPUT);
 
-  digitalWrite(VALVE_PIN, LOW);
+  set_valve_relays(false, false);
 }
 
 void setup() {
@@ -632,7 +757,7 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  update_timed_outputs();
+  update_valve_control(now);
 
   if (now - last_flow_read_time >= FLOW_READ_INTERVAL_MS) {
     water_flow_sensor.read();

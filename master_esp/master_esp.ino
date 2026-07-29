@@ -93,8 +93,6 @@ typedef struct {
 
 typedef struct {
   bool irrigate;
-  bool spray_pesticide;
-  bool apply_fertilizer;
   uint16_t irrigation_duration_sec;
 } __attribute__((packed)) control_payload_t;
 
@@ -102,11 +100,17 @@ typedef struct {
    STATUS PAYLOAD
 ============================ */
 
+enum valve_state_t : uint8_t {
+  VALVE_UNKNOWN = 0,
+  VALVE_CLOSED = 1,
+  VALVE_OPENING = 2,
+  VALVE_OPEN = 3,
+  VALVE_CLOSING = 4
+};
+
 typedef struct {
   bool alive;
-  bool valve_state;
-  bool spray_state;
-  bool fertilizer_state;
+  valve_state_t valve_state;
   uint32_t uptime_ms;
   uint32_t packets_sent;
 } __attribute__((packed)) status_payload_t;
@@ -136,6 +140,8 @@ typedef struct {
 
 static_assert(sizeof(sensor_readings_t) == 23, "Sensor payload layout changed");
 static_assert(sizeof(section_readings_t) == 31, "Section payload layout changed");
+static_assert(sizeof(control_payload_t) == 3, "Control payload layout changed");
+static_assert(sizeof(status_payload_t) == 10, "Status payload layout changed");
 static_assert(sizeof(farm_packet_t) == 90, "Farm packet layout changed");
 static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too large");
 
@@ -273,6 +279,21 @@ float clamp_float(
   }
 
   return value;
+}
+
+const char *valve_state_name(valve_state_t state) {
+  switch (state) {
+    case VALVE_CLOSED:
+      return "closed";
+    case VALVE_OPENING:
+      return "opening";
+    case VALVE_OPEN:
+      return "open";
+    case VALVE_CLOSING:
+      return "closing";
+    default:
+      return "unknown";
+  }
 }
 
 void add_section_peer(
@@ -417,9 +438,8 @@ void queue_section_status_telemetry(
   doc["node_id"] = pkt->node_id;
   doc["device_client_id"] = pkt->device_client_id;
   doc["alive"] = pkt->status.alive;
-  doc["valve_state"] = pkt->status.valve_state;
-  doc["spray_state"] = pkt->status.spray_state;
-  doc["fertilizer_state"] = pkt->status.fertilizer_state;
+  doc["valve_state"] = valve_state_name(pkt->status.valve_state);
+  doc["valve_open"] = pkt->status.valve_state == VALVE_OPEN;
   doc["uptime_ms"] = pkt->status.uptime_ms;
   doc["packets_sent"] = pkt->status.packets_sent;
 
@@ -607,11 +627,6 @@ bool extract_manual_control(
       "irrigate",
       json_bool_key(object, "valve", false)
     );
-  control->spray_pesticide =
-    json_bool_key(object, "spray_pesticide", false);
-  control->apply_fertilizer =
-    json_bool_key(object, "apply_fertilizer", false);
-
   int duration =
     json_int_key(
       object,
@@ -661,8 +676,6 @@ bool forward_manual_control(
     manual_controls[section_id].active = false;
 
     control.irrigate = false;
-    control.spray_pesticide = false;
-    control.apply_fertilizer = false;
     control.irrigation_duration_sec = 0;
   }
 
@@ -821,7 +834,7 @@ void request_shared_attributes() {
   const char request[] =
     "{\"sharedKeys\":\"manual_control,manualControl,"
     "section_id,target_section_id,section,enabled,manual,"
-    "irrigate,valve,spray_pesticide,apply_fertilizer,"
+    "irrigate,valve,"
     "irrigation_duration_sec,duration_sec\"}";
 
   mqtt.publish(topic, request);
@@ -1130,7 +1143,10 @@ void handle_status_packet(
   Serial.print("Section client_id: ");
   Serial.println(pkt->device_client_id);
   Serial.printf("Alive: %s\n", pkt->status.alive ? "YES" : "NO");
-  Serial.printf("Valve: %s\n", pkt->status.valve_state ? "ON" : "OFF");
+  Serial.printf(
+    "Valve: %s\n",
+    valve_state_name(pkt->status.valve_state)
+  );
   Serial.printf("Uptime: %lu ms\n", pkt->status.uptime_ms);
   Serial.printf("Packets sent: %lu\n", pkt->status.packets_sent);
 

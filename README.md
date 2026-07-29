@@ -22,7 +22,7 @@ This project explores a lower-cost edge approach:
 | `rainfall_mlp/` | Experimental hourly rainfall MLP pipeline and generated research artifacts. It is not currently deployed in the master firmware. |
 | `rainfall_convolution/` | Experimental 1D CNN rainfall model using 24-hour weather sequences. |
 | `master_esp/` | Master ESP32 firmware. Receives sensor packets, publishes telemetry, and sends soil-moisture-based irrigation/control commands to section nodes. |
-| `section_esp/` | Section controller firmware. Reads ambient/soil/flow sensors, relays other sensor-node packets, and drives valve, spray, and fertilizer outputs. |
+| `section_esp/` | Section controller firmware. Reads ambient/soil/flow sensors, relays other sensor-node packets, and controls a two-relay motorized ball valve. |
 | `sensor_esp/` | Sensor node firmware for AM2301A ambient readings, analog soil moisture, and DS18B20 soil temperature. |
 | `report_artifacts/` | Project report source, bibliography, figures, style files, and generated report outputs. |
 
@@ -44,7 +44,7 @@ Each major folder has its own README with setup notes, execution order, runtime 
 
 ## Sensor and Control Flow
 
-Sensor and section nodes transmit ambient temperature/humidity, raw and calibrated soil moisture, and soil temperature. Section nodes also transmit flow rate and accumulated water volume. The master caches readings per section and node, selects the driest valid reading per section, and scales a bounded irrigation duration from the measured soil-moisture deficit. Manual ThingsBoard commands remain available as an override.
+Sensor and section nodes transmit ambient temperature/humidity, raw and calibrated soil moisture, and soil temperature. Section nodes also transmit flow rate and accumulated water volume. The master caches readings per section and node, selects the driest valid reading per section, and scales a bounded irrigation duration from the measured soil-moisture deficit. Section nodes open and close each motorized valve with interlocked relays and non-blocking 24-second travel sequences. Manual ThingsBoard commands remain available as an override.
 
 ## Report
 
