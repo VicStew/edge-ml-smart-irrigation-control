@@ -38,7 +38,7 @@
 #define MAX_SENSOR_PEERS 16
 #define DEVICE_CLIENT_ID_LENGTH 40
 
-const char SECTION_NODE_CLIENT_ID[] = "bkwuzcjmz5x2p1gm33zq";
+const char SECTION_NODE_CLIENT_ID[] = "0trhe202q8u4wxegyzkf";
 
 /* ============================
    MASTER MAC
