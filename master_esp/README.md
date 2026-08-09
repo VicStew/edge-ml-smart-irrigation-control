@@ -4,6 +4,25 @@ The master receives physical sensor readings from section ESP32 nodes, publishes
 
 The embedded TensorFlow Lite rainfall model is intentionally disabled and its deployed firmware files have been removed for now. The automatic irrigation algorithm remains active and uses calibrated soil-moisture readings directly.
 
+## FreeRTOS execution model
+
+The master uses both ESP32 cores:
+
+- `farm_task` runs on core 1 at priority 2. It drains a FreeRTOS queue of
+  ESP-NOW packets, updates sensor caches, and runs automatic irrigation.
+- `cloud_task` runs on core 0 at priority 1. It owns TinyGSM, MQTT, shared
+  attribute processing, and telemetry publication.
+
+ESP-NOW receive callbacks only validate and enqueue packets, keeping the
+ESP32 Wi-Fi task short. Telemetry also uses a FreeRTOS queue, so packet
+reception never edits the cloud task's queue storage concurrently.
+
+The modem still provides only one MQTT session at a time. To prevent sensor
+traffic from starving commands while telemetry is published with different
+device client IDs, the cloud task publishes one queued item, restores the
+subscribed master session immediately, and services MQTT for at least
+`MASTER_MQTT_SERVICE_WINDOW_MS` before switching identities again.
+
 ## Required libraries
 
 - ESP32 Arduino core with ESP-NOW

@@ -34,9 +34,15 @@
 #define MQTT_BUFFER_SIZE 768
 #define TELEMETRY_QUEUE_LENGTH 8
 #define TELEMETRY_PAYLOAD_SIZE 512
+#define ESPNOW_QUEUE_LENGTH 16
 #define DEVICE_CLIENT_ID_LENGTH 40
 #define GSM_RECONNECT_INTERVAL_MS 30000
 #define MQTT_RECONNECT_INTERVAL_MS 10000
+#define MASTER_MQTT_SERVICE_WINDOW_MS 500
+#define CLOUD_TASK_STACK_SIZE 8192
+#define FARM_TASK_STACK_SIZE 6144
+#define CLOUD_TASK_CORE 0
+#define FARM_TASK_CORE 1
 
 const char GSM_PIN[] = "";
 const char GPRS_APN[] = "internet";
@@ -204,19 +210,24 @@ TinyGsmClient gsm_client(modem);
 PubSubClient mqtt(gsm_client);
 
 typedef struct {
-  bool pending;
   char device_client_id[DEVICE_CLIENT_ID_LENGTH];
   char payload[TELEMETRY_PAYLOAD_SIZE];
 } telemetry_message_t;
 
-telemetry_message_t telemetry_queue[TELEMETRY_QUEUE_LENGTH];
-uint8_t telemetry_queue_head = 0;
-uint8_t telemetry_queue_tail = 0;
-uint8_t telemetry_queue_count = 0;
+typedef struct {
+  farm_packet_t packet;
+  uint8_t sender_mac[6];
+} received_packet_t;
+
+QueueHandle_t telemetry_queue = nullptr;
+QueueHandle_t received_packet_queue = nullptr;
+SemaphoreHandle_t espnow_send_mutex = nullptr;
+portMUX_TYPE farm_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 bool modem_ready = false;
 uint32_t last_gsm_reconnect_attempt = 0;
 uint32_t last_mqtt_reconnect_attempt = 0;
+uint32_t master_mqtt_connected_at = 0;
 uint32_t shared_attribute_request_id = 1;
 char active_thingsboard_client_id[DEVICE_CLIENT_ID_LENGTH] = "";
 
@@ -297,11 +308,23 @@ const char *valve_state_name(valve_state_t state) {
   }
 }
 
-void add_section_peer(
+bool add_section_peer(
   const uint8_t *mac
 ) {
+  if (
+    espnow_send_mutex == nullptr ||
+    xSemaphoreTake(
+      espnow_send_mutex,
+      pdMS_TO_TICKS(100)
+    ) != pdTRUE
+  ) {
+    Serial.println("ESP-NOW peer lock timeout");
+    return false;
+  }
+
   if (esp_now_is_peer_exist(mac)) {
-    return;
+    xSemaphoreGive(espnow_send_mutex);
+    return true;
   }
 
   esp_now_peer_info_t peerInfo = {};
@@ -310,10 +333,15 @@ void add_section_peer(
   peerInfo.channel = WIFI_CHANNEL;
   peerInfo.encrypt = false;
 
-  if (esp_now_add_peer(&peerInfo) == ESP_OK) {
+  esp_err_t result = esp_now_add_peer(&peerInfo);
+  xSemaphoreGive(espnow_send_mutex);
+
+  if (result == ESP_OK) {
     Serial.println("Section peer added");
+    return true;
   } else {
     Serial.println("Failed to add section peer");
+    return false;
   }
 }
 
@@ -326,32 +354,28 @@ bool enqueue_telemetry(
     return false;
   }
 
-  if (telemetry_queue_count >= TELEMETRY_QUEUE_LENGTH) {
-    Serial.println("Telemetry queue full");
-    return false;
-  }
-
-  telemetry_message_t *message =
-    &telemetry_queue[telemetry_queue_tail];
+  telemetry_message_t message = {};
 
   copy_text(
-    message->device_client_id,
-    sizeof(message->device_client_id),
+    message.device_client_id,
+    sizeof(message.device_client_id),
     device_client_id
   );
   copy_text(
-    message->payload,
-    sizeof(message->payload),
+    message.payload,
+    sizeof(message.payload),
     payload
   );
-  message->pending = true;
 
-  telemetry_queue_tail =
-    (telemetry_queue_tail + 1) %
-    TELEMETRY_QUEUE_LENGTH;
-  telemetry_queue_count++;
+  if (
+    telemetry_queue != nullptr &&
+    xQueueSend(telemetry_queue, &message, 0) == pdTRUE
+  ) {
+    return true;
+  }
 
-  return true;
+  Serial.println("Telemetry queue full");
+  return false;
 }
 
 void queue_sensor_telemetry(
@@ -523,14 +547,26 @@ void send_control_packet(
   pkt.type = MSG_CONTROL_CMD;
   pkt.control = control;
 
-  esp_now_send(
-    section_mac,
-    (uint8_t*)&pkt,
-    sizeof(pkt)
-  );
+  esp_err_t result = ESP_ERR_TIMEOUT;
+
+  if (
+    espnow_send_mutex != nullptr &&
+    xSemaphoreTake(
+      espnow_send_mutex,
+      pdMS_TO_TICKS(100)
+    ) == pdTRUE
+  ) {
+    result = esp_now_send(
+      section_mac,
+      (uint8_t*)&pkt,
+      sizeof(pkt)
+    );
+    xSemaphoreGive(espnow_send_mutex);
+  }
 
   Serial.printf(
-    "Control sent to section %d\n",
+    "Control %s to section %d\n",
+    result == ESP_OK ? "sent" : "failed",
     section_id
   );
 }
@@ -670,6 +706,11 @@ bool forward_manual_control(
     return false;
   }
 
+  bool section_active;
+  uint8_t section_mac[6] = {};
+
+  portENTER_CRITICAL(&farm_state_mux);
+
   if (manual_enabled) {
     manual_controls[section_id].active = true;
     manual_controls[section_id].control = control;
@@ -680,7 +721,12 @@ bool forward_manual_control(
     control.irrigation_duration_sec = 0;
   }
 
-  if (!sections[section_id].active) {
+  section_active = sections[section_id].active;
+  memcpy(section_mac, sections[section_id].mac, 6);
+
+  portEXIT_CRITICAL(&farm_state_mux);
+
+  if (!section_active) {
     Serial.printf(
       "Section %d is not discovered yet\n",
       section_id
@@ -689,7 +735,7 @@ bool forward_manual_control(
   }
 
   send_control_packet(
-    sections[section_id].mac,
+    section_mac,
     section_id,
     control
   );
@@ -942,6 +988,7 @@ bool connect_thingsboard(
     mqtt.subscribe(TB_ATTRIBUTES_TOPIC);
     mqtt.subscribe(TB_ATTRIBUTES_RESPONSE_TOPIC);
     request_shared_attributes();
+    master_mqtt_connected_at = millis();
   }
 
   Serial.println("ThingsBoard MQTT connected");
@@ -1014,48 +1061,58 @@ void maintain_thingsboard() {
 }
 
 void publish_queued_telemetry() {
-  if (!modem_ready) {
+  if (
+    !modem_ready ||
+    telemetry_queue == nullptr ||
+    uxQueueMessagesWaiting(telemetry_queue) == 0
+  ) {
     return;
   }
 
-  while (telemetry_queue_count > 0) {
-    telemetry_message_t *message =
-      &telemetry_queue[telemetry_queue_head];
-
-    bool is_master =
-      strcmp(
-        message->device_client_id,
-        MASTER_NODE_CLIENT_ID
-      ) == 0;
-
-    if (
-      !connect_thingsboard(
-        message->device_client_id,
-        is_master
-      )
-    ) {
-      return;
-    }
-
-    if (
-      !mqtt.publish(
-        TB_TELEMETRY_TOPIC,
-        message->payload
-      )
-    ) {
-      Serial.println("Telemetry publish failed");
-      return;
-    }
-
-    message->pending = false;
-    telemetry_queue_head =
-      (telemetry_queue_head + 1) %
-      TELEMETRY_QUEUE_LENGTH;
-    telemetry_queue_count--;
-
-    Serial.println("Telemetry published to ThingsBoard");
+  if (
+    client_matches_active_connection(MASTER_NODE_CLIENT_ID) &&
+    millis() - master_mqtt_connected_at <
+      MASTER_MQTT_SERVICE_WINDOW_MS
+  ) {
+    return;
   }
 
+  telemetry_message_t message = {};
+
+  if (xQueuePeek(telemetry_queue, &message, 0) != pdTRUE) {
+    return;
+  }
+
+  bool is_master =
+    strcmp(
+      message.device_client_id,
+      MASTER_NODE_CLIENT_ID
+    ) == 0;
+
+  if (
+    !connect_thingsboard(
+      message.device_client_id,
+      is_master
+    )
+  ) {
+    return;
+  }
+
+  if (
+    !mqtt.publish(
+      TB_TELEMETRY_TOPIC,
+      message.payload
+    )
+  ) {
+    Serial.println("Telemetry publish failed");
+    return;
+  }
+
+  xQueueReceive(telemetry_queue, &message, 0);
+  Serial.println("Telemetry published to ThingsBoard");
+
+  // Restore the subscribed master session after every telemetry item. This
+  // prevents a busy queue from starving shared-attribute commands.
   if (!client_matches_active_connection(MASTER_NODE_CLIENT_ID)) {
     connect_master_thingsboard();
   }
@@ -1065,9 +1122,14 @@ void register_section(
   uint8_t section_id,
   const uint8_t *section_mac
 ) {
+  if (!add_section_peer(section_mac)) {
+    return;
+  }
+
+  portENTER_CRITICAL(&farm_state_mux);
   memcpy(sections[section_id].mac, section_mac, 6);
   sections[section_id].active = true;
-  add_section_peer(section_mac);
+  portEXIT_CRITICAL(&farm_state_mux);
 }
 
 void print_sensor_readings(
@@ -1236,40 +1298,54 @@ void on_data_recv(
     return;
   }
 
-  farm_packet_t pkt = {};
+  received_packet_t received = {};
   size_t copy_len =
-    len < (int)sizeof(pkt) ?
+    len < (int)sizeof(received.packet) ?
     (size_t)len :
-    sizeof(pkt);
+    sizeof(received.packet);
 
-  memcpy(&pkt, incoming_data, copy_len);
+  memcpy(&received.packet, incoming_data, copy_len);
+  memcpy(received.sender_mac, recv_info->src_addr, 6);
 
-  if (!packet_size_is_valid(pkt.type, (size_t)len)) {
+  if (!packet_size_is_valid(received.packet.type, (size_t)len)) {
     Serial.printf(
       "Invalid packet size: %d bytes for type %d\n",
       len,
-      (int)pkt.type
+      (int)received.packet.type
     );
     return;
   }
 
-  switch (pkt.type) {
+  if (
+    received_packet_queue == nullptr ||
+    xQueueSend(received_packet_queue, &received, 0) != pdTRUE
+  ) {
+    Serial.println("ESP-NOW receive queue full");
+  }
+}
+
+void process_received_packet(
+  received_packet_t *received
+) {
+  farm_packet_t *pkt = &received->packet;
+
+  switch (pkt->type) {
     case MSG_SENSOR_DATA:
       handle_sensor_packet(
-        &pkt,
-        recv_info->src_addr
+        pkt,
+        received->sender_mac
       );
       break;
 
     case MSG_SECTION_DATA:
       handle_section_sensor_packet(
-        &pkt,
-        recv_info->src_addr
+        pkt,
+        received->sender_mac
       );
       break;
 
     case MSG_STATUS:
-      handle_status_packet(&pkt);
+      handle_status_packet(pkt);
       break;
 
     default:
@@ -1366,14 +1442,24 @@ bool select_driest_section_reading(
 
 void process_control_cycle() {
   for (uint8_t section_id = 0; section_id < MAX_SECTIONS; section_id++) {
-    if (!sections[section_id].active) {
+    bool section_active;
+    manual_control_t manual_control;
+    uint8_t section_mac[6];
+
+    portENTER_CRITICAL(&farm_state_mux);
+    section_active = sections[section_id].active;
+    manual_control = manual_controls[section_id];
+    memcpy(section_mac, sections[section_id].mac, 6);
+    portEXIT_CRITICAL(&farm_state_mux);
+
+    if (!section_active) {
       continue;
     }
 
     control_payload_t control = {};
 
-    if (manual_controls[section_id].active) {
-      control = manual_controls[section_id].control;
+    if (manual_control.active) {
+      control = manual_control.control;
       Serial.printf(
         "Using manual override for section %d\n",
         section_id
@@ -1403,14 +1489,6 @@ void process_control_cycle() {
       );
     }
 
-    uint8_t section_mac[6];
-
-    memcpy(
-      section_mac,
-      sections[section_id].mac,
-      6
-    );
-
     send_control_packet(
       section_mac,
       section_id,
@@ -1420,11 +1498,69 @@ void process_control_cycle() {
 }
 
 /* ============================
+   FREERTOS TASKS
+============================ */
+
+void farm_task(void *parameter) {
+  received_packet_t received = {};
+
+  for (;;) {
+    if (
+      xQueueReceive(
+        received_packet_queue,
+        &received,
+        pdMS_TO_TICKS(10)
+      ) == pdTRUE
+    ) {
+      process_received_packet(&received);
+    }
+
+    unsigned long now = millis();
+
+    if (now - last_control_cycle >= CONTROL_INTERVAL_MS) {
+      process_control_cycle();
+      last_control_cycle = now;
+    }
+  }
+}
+
+void cloud_task(void *parameter) {
+  init_gsm_modem();
+
+  for (;;) {
+    maintain_thingsboard();
+    publish_queued_telemetry();
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+/* ============================
    SETUP
 ============================ */
 
 void setup() {
   Serial.begin(115200);
+
+  telemetry_queue = xQueueCreate(
+    TELEMETRY_QUEUE_LENGTH,
+    sizeof(telemetry_message_t)
+  );
+  received_packet_queue = xQueueCreate(
+    ESPNOW_QUEUE_LENGTH,
+    sizeof(received_packet_t)
+  );
+  espnow_send_mutex = xSemaphoreCreateMutex();
+
+  if (
+    telemetry_queue == nullptr ||
+    received_packet_queue == nullptr ||
+    espnow_send_mutex == nullptr
+  ) {
+    Serial.println("Failed to create master FreeRTOS queues");
+    while (true) {
+      delay(1000);
+    }
+  }
 
   mqtt.setServer(
     THINGSBOARD_SERVER,
@@ -1437,7 +1573,38 @@ void setup() {
   WiFi.setChannel(WIFI_CHANNEL);
 
   init_espnow();
-  init_gsm_modem();
+
+  BaseType_t farm_task_created =
+    xTaskCreatePinnedToCore(
+      farm_task,
+      "farm_task",
+      FARM_TASK_STACK_SIZE,
+      nullptr,
+      2,
+      nullptr,
+      FARM_TASK_CORE
+    );
+
+  BaseType_t cloud_task_created =
+    xTaskCreatePinnedToCore(
+      cloud_task,
+      "cloud_task",
+      CLOUD_TASK_STACK_SIZE,
+      nullptr,
+      1,
+      nullptr,
+      CLOUD_TASK_CORE
+    );
+
+  if (
+    farm_task_created != pdPASS ||
+    cloud_task_created != pdPASS
+  ) {
+    Serial.println("Failed to create master FreeRTOS tasks");
+    while (true) {
+      delay(1000);
+    }
+  }
 
   Serial.println("Master Online");
 }
@@ -1447,13 +1614,5 @@ void setup() {
 ============================ */
 
 void loop() {
-  unsigned long now = millis();
-
-  if (now - last_control_cycle > CONTROL_INTERVAL_MS) {
-    process_control_cycle();
-    last_control_cycle = now;
-  }
-
-  maintain_thingsboard();
-  publish_queued_telemetry();
+  vTaskDelay(pdMS_TO_TICKS(1000));
 }

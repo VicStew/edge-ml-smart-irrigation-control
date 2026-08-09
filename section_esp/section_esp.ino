@@ -41,6 +41,12 @@
 #define STATUS_INTERVAL_MS 10000
 #define MAX_SENSOR_PEERS 16
 #define DEVICE_CLIENT_ID_LENGTH 40
+#define ESPNOW_QUEUE_LENGTH 16
+#define VALVE_TASK_STACK_SIZE 3072
+#define COMMUNICATION_TASK_STACK_SIZE 4096
+#define SENSOR_TASK_STACK_SIZE 4096
+#define VALVE_TASK_CORE 1
+#define IO_TASK_CORE 0
 
 const char SECTION_NODE_CLIENT_ID[] = "bkwuzcjmz5x2p1gm33zq";
 
@@ -160,6 +166,11 @@ static_assert(sizeof(status_payload_t) == 10, "Status payload layout changed");
 static_assert(sizeof(farm_packet_t) == 90, "Farm packet layout changed");
 static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too large");
 
+typedef struct {
+  farm_packet_t packet;
+  uint8_t sender_mac[6];
+} received_packet_t;
+
 /* ============================
    GLOBAL STATE
 ============================ */
@@ -183,6 +194,10 @@ uint32_t packets_sent = 0;
 
 uint8_t sensor_peers[MAX_SENSOR_PEERS][6];
 uint8_t sensor_peer_count = 0;
+
+QueueHandle_t received_packet_queue = nullptr;
+SemaphoreHandle_t espnow_send_mutex = nullptr;
+portMUX_TYPE packet_counter_mux = portMUX_INITIALIZER_UNLOCKED;
 
 void send_status();
 
@@ -219,6 +234,54 @@ void copy_text(
   destination[destination_size - 1] = '\0';
 }
 
+uint32_t next_packet_sequence() {
+  uint32_t sequence;
+
+  portENTER_CRITICAL(&packet_counter_mux);
+  sequence = packet_counter++;
+  portEXIT_CRITICAL(&packet_counter_mux);
+
+  return sequence;
+}
+
+void record_packet_sent() {
+  portENTER_CRITICAL(&packet_counter_mux);
+  packets_sent++;
+  portEXIT_CRITICAL(&packet_counter_mux);
+}
+
+uint32_t packets_sent_snapshot() {
+  uint32_t count;
+
+  portENTER_CRITICAL(&packet_counter_mux);
+  count = packets_sent;
+  portEXIT_CRITICAL(&packet_counter_mux);
+
+  return count;
+}
+
+esp_err_t send_espnow_packet(
+  const uint8_t *destination,
+  const uint8_t *data,
+  size_t length
+) {
+  if (
+    espnow_send_mutex == nullptr ||
+    xSemaphoreTake(
+      espnow_send_mutex,
+      pdMS_TO_TICKS(100)
+    ) != pdTRUE
+  ) {
+    return ESP_ERR_TIMEOUT;
+  }
+
+  esp_err_t result =
+    esp_now_send(destination, data, length);
+
+  xSemaphoreGive(espnow_send_mutex);
+  return result;
+}
+
 float clamp_float(
   float value,
   float low,
@@ -243,7 +306,19 @@ bool mac_equal(
 }
 
 void add_peer_if_needed(const uint8_t *mac) {
+  if (
+    espnow_send_mutex == nullptr ||
+    xSemaphoreTake(
+      espnow_send_mutex,
+      pdMS_TO_TICKS(100)
+    ) != pdTRUE
+  ) {
+    Serial.println("ESP-NOW peer lock timeout");
+    return;
+  }
+
   if (esp_now_is_peer_exist(mac)) {
+    xSemaphoreGive(espnow_send_mutex);
     return;
   }
 
@@ -252,7 +327,10 @@ void add_peer_if_needed(const uint8_t *mac) {
   peer_info.channel = WIFI_CHANNEL;
   peer_info.encrypt = false;
 
-  if (esp_now_add_peer(&peer_info) == ESP_OK) {
+  esp_err_t result = esp_now_add_peer(&peer_info);
+  xSemaphoreGive(espnow_send_mutex);
+
+  if (result == ESP_OK) {
     Serial.print("Peer added: ");
     print_mac(mac);
   } else {
@@ -539,7 +617,7 @@ void send_section_sensor_data() {
     SECTION_NODE_CLIENT_ID
   );
 
-  pkt.sequence = packet_counter++;
+  pkt.sequence = next_packet_sequence();
   pkt.type = MSG_SECTION_DATA;
   pkt.section_data.sensors = read_sensors();
   pkt.section_data.water_flow_rate_l_min =
@@ -547,14 +625,14 @@ void send_section_sensor_data() {
   pkt.section_data.total_water_volume_l =
     water_flow_sensor.getVolume();
 
-  esp_err_t result = esp_now_send(
+  esp_err_t result = send_espnow_packet(
     master_mac,
     (uint8_t*)&pkt,
     sizeof(pkt)
   );
 
   if (result == ESP_OK) {
-    packets_sent++;
+    record_packet_sent();
     Serial.println("Section sensor packet queued");
     print_sensor_readings(pkt.section_data.sensors);
     Serial.printf(
@@ -584,17 +662,21 @@ void send_status() {
     SECTION_NODE_CLIENT_ID
   );
 
-  pkt.sequence = packet_counter++;
+  pkt.sequence = next_packet_sequence();
   pkt.type = MSG_STATUS;
   pkt.status.alive = true;
   pkt.status.valve_state = valve_state;
   pkt.status.uptime_ms = millis();
-  pkt.status.packets_sent = packets_sent;
+  pkt.status.packets_sent = packets_sent_snapshot();
 
   if (
-    esp_now_send(master_mac, (uint8_t*)&pkt, sizeof(pkt)) == ESP_OK
+    send_espnow_packet(
+      master_mac,
+      (uint8_t*)&pkt,
+      sizeof(pkt)
+    ) == ESP_OK
   ) {
-    packets_sent++;
+    record_packet_sent();
   }
 
   Serial.println("Status sent to master");
@@ -621,9 +703,13 @@ void handle_sensor_packet(
   pkt->section_id = SECTION_ID;
 
   if (
-    esp_now_send(master_mac, (uint8_t*)pkt, sizeof(*pkt)) == ESP_OK
+    send_espnow_packet(
+      master_mac,
+      (uint8_t*)pkt,
+      sizeof(*pkt)
+    ) == ESP_OK
   ) {
-    packets_sent++;
+    record_packet_sent();
     Serial.println("Forwarded sensor data to master");
   } else {
     Serial.println("Failed to forward sensor data");
@@ -670,10 +756,9 @@ void on_data_sent(
   const wifi_tx_info_t *tx_info,
   esp_now_send_status_t status
 ) {
-  Serial.print("Send status: ");
-  Serial.println(
-    status == ESP_NOW_SEND_SUCCESS ? "Success" : "Failed"
-  );
+  if (status != ESP_NOW_SEND_SUCCESS) {
+    Serial.println("ESP-NOW send failed");
+  }
 }
 
 void on_data_recv(
@@ -690,13 +775,76 @@ void on_data_recv(
     return;
   }
 
-  farm_packet_t pkt = {};
-  memcpy(&pkt, incoming_data, sizeof(pkt));
+  received_packet_t received = {};
+  memcpy(&received.packet, incoming_data, sizeof(received.packet));
+  memcpy(received.sender_mac, recv_info->src_addr, 6);
 
-  Serial.print("Packet from: ");
-  print_mac(recv_info->src_addr);
+  if (
+    received_packet_queue == nullptr ||
+    xQueueSend(received_packet_queue, &received, 0) != pdTRUE
+  ) {
+    Serial.println("Section ESP-NOW receive queue full");
+  }
+}
 
-  route_packet(&pkt, recv_info->src_addr);
+/* ============================
+   FREERTOS TASKS
+============================ */
+
+void valve_task(void *parameter) {
+  last_status_time = millis();
+
+  for (;;) {
+    unsigned long now = millis();
+    update_valve_control(now);
+
+    if (now - last_status_time >= STATUS_INTERVAL_MS) {
+      send_status();
+      last_status_time = now;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+void communication_task(void *parameter) {
+  received_packet_t received = {};
+
+  for (;;) {
+    if (
+      xQueueReceive(
+        received_packet_queue,
+        &received,
+        portMAX_DELAY
+      ) == pdTRUE
+    ) {
+      route_packet(
+        &received.packet,
+        received.sender_mac
+      );
+    }
+  }
+}
+
+void sensor_task(void *parameter) {
+  last_sensor_time = millis();
+  last_flow_read_time = millis();
+
+  for (;;) {
+    unsigned long now = millis();
+
+    if (now - last_flow_read_time >= FLOW_READ_INTERVAL_MS) {
+      water_flow_sensor.read();
+      last_flow_read_time = now;
+    }
+
+    if (now - last_sensor_time >= SENSOR_INTERVAL_MS) {
+      send_section_sensor_data();
+      last_sensor_time = now;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
 }
 
 /* ============================
@@ -741,6 +889,22 @@ void init_gpio() {
 void setup() {
   Serial.begin(115200);
 
+  received_packet_queue = xQueueCreate(
+    ESPNOW_QUEUE_LENGTH,
+    sizeof(received_packet_t)
+  );
+  espnow_send_mutex = xSemaphoreCreateMutex();
+
+  if (
+    received_packet_queue == nullptr ||
+    espnow_send_mutex == nullptr
+  ) {
+    Serial.println("Failed to create section FreeRTOS resources");
+    while (true) {
+      delay(1000);
+    }
+  }
+
   init_gpio();
   init_sensors();
 
@@ -749,28 +913,55 @@ void setup() {
 
   init_espnow();
 
+  BaseType_t valve_task_created =
+    xTaskCreatePinnedToCore(
+      valve_task,
+      "valve_task",
+      VALVE_TASK_STACK_SIZE,
+      nullptr,
+      3,
+      nullptr,
+      VALVE_TASK_CORE
+    );
+
+  BaseType_t communication_task_created =
+    xTaskCreatePinnedToCore(
+      communication_task,
+      "communication_task",
+      COMMUNICATION_TASK_STACK_SIZE,
+      nullptr,
+      2,
+      nullptr,
+      IO_TASK_CORE
+    );
+
+  BaseType_t sensor_task_created =
+    xTaskCreatePinnedToCore(
+      sensor_task,
+      "sensor_task",
+      SENSOR_TASK_STACK_SIZE,
+      nullptr,
+      1,
+      nullptr,
+      IO_TASK_CORE
+    );
+
+  if (
+    valve_task_created != pdPASS ||
+    communication_task_created != pdPASS ||
+    sensor_task_created != pdPASS
+  ) {
+    Serial.println("Failed to create section FreeRTOS tasks");
+    while (true) {
+      delay(1000);
+    }
+  }
+
   Serial.println("Section Node Online");
   Serial.print("Master MAC: ");
   print_mac(master_mac);
 }
 
 void loop() {
-  unsigned long now = millis();
-
-  update_valve_control(now);
-
-  if (now - last_flow_read_time >= FLOW_READ_INTERVAL_MS) {
-    water_flow_sensor.read();
-    last_flow_read_time = now;
-  }
-
-  if (now - last_sensor_time >= SENSOR_INTERVAL_MS) {
-    send_section_sensor_data();
-    last_sensor_time = now;
-  }
-
-  if (now - last_status_time >= STATUS_INTERVAL_MS) {
-    send_status();
-    last_status_time = now;
-  }
+  vTaskDelay(pdMS_TO_TICKS(1000));
 }

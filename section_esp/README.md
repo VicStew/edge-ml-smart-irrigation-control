@@ -2,6 +2,22 @@
 
 A section node reads its own sensors, measures irrigation water flow, forwards sensor-node readings, and controls a motorized ball valve from commands received from the master over ESP-NOW.
 
+## FreeRTOS execution model
+
+The section node uses three tasks across the ESP32's two cores:
+
+- `valve_task` runs on core 1 at priority 3 and checks valve commands and
+  motion deadlines every 10 ms.
+- `communication_task` runs on core 0 at priority 2 and routes packets copied
+  from the ESP-NOW receive queue.
+- `sensor_task` runs on core 0 at priority 1 and performs the slower ambient,
+  soil, temperature, and water-flow work.
+
+ESP-NOW callbacks only enqueue received packets. Sensor reads and bursts of
+forwarded node traffic therefore cannot block valve state transitions.
+Outgoing ESP-NOW calls and shared packet counters are synchronized between
+the tasks.
+
 ## Sensors and libraries
 
 - AM2301A ambient temperature/humidity sensor using `DHTNEW`
