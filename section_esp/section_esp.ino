@@ -17,13 +17,13 @@
 #define WIFI_CHANNEL 4
 #define SECTION_ID 1
 
-#define AM2301A_PIN 26
-#define SOIL_MOISTURE_ADC_PIN 34
-#define DS18B20_PIN 25
-#define WATER_FLOW_PIN 32
+#define AM2301A_PIN 27
+#define SOIL_MOISTURE_ADC_PIN 36
+#define DS18B20_PIN 14
+#define WATER_FLOW_PIN 5
 
-#define VALVE_OPEN_RELAY_PIN 5
-#define VALVE_CLOSE_RELAY_PIN 27
+#define VALVE_OPEN_RELAY_PIN 25
+#define VALVE_CLOSE_RELAY_PIN 26
 #define VALVE_RELAY_ON HIGH
 #define VALVE_RELAY_OFF LOW
 #define VALVE_TRAVEL_TIME_MS 24000UL
@@ -42,7 +42,7 @@
 #define MAX_SENSOR_PEERS 16
 #define DEVICE_CLIENT_ID_LENGTH 40
 
-const char SECTION_NODE_CLIENT_ID[] = "0trhe202q8u4wxegyzkf";
+const char SECTION_NODE_CLIENT_ID[] = "bkwuzcjmz5x2p1gm33zq";
 
 /* ============================
    MASTER MAC

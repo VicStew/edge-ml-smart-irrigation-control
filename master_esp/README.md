@@ -61,3 +61,10 @@ Manual control uses a shared `manual_control` (or `manualControl`) object:
 ```
 
 The duration begins after the valve finishes opening. Set `enabled` to `false` to release the override and send a close command to the section.
+
+For section 1, the boolean shared attribute `valveState_Section_1` is
+also supported. Setting it to `true` opens the valve indefinitely, and
+setting it to `false` closes the valve. The master requests its current
+value whenever it reconnects and listens for subsequent attribute changes.
+This attribute acts as a manual override of automatic soil-moisture control
+for section 1.

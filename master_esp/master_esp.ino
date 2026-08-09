@@ -24,6 +24,7 @@
 
 #define MAX_SECTIONS 10
 #define MAX_SENSOR_NODES 32
+#define SECTION_1_ID 1
 
 #define SIM800_RX_PIN 16
 #define SIM800_TX_PIN 17
@@ -737,6 +738,44 @@ void process_manual_control_object(
 void process_shared_attributes(
   JsonObjectConst attributes
 ) {
+  const char section_1_valve_key[] =
+    "valveState_Section_1";
+
+  if (json_has_key(attributes, section_1_valve_key)) {
+    JsonVariantConst valve_state =
+      attributes[section_1_valve_key];
+
+    if (!valve_state.is<bool>()) {
+      Serial.println(
+        "Ignoring valveState_Section_1: expected true or false"
+      );
+      return;
+    }
+
+    control_payload_t control = {};
+    control.irrigate = valve_state.as<bool>();
+
+    bool forwarded =
+      forward_manual_control(
+        SECTION_1_ID,
+        true,
+        control
+      );
+
+    publish_manual_control_result(
+      SECTION_1_ID,
+      true,
+      forwarded
+    );
+
+    Serial.printf(
+      "valveState_Section_1=%s; section 1 valve command %s\n",
+      control.irrigate ? "true" : "false",
+      forwarded ? "forwarded" : "queued until discovery"
+    );
+    return;
+  }
+
   JsonVariantConst snake_case_control =
     attributes["manual_control"];
   JsonVariantConst camel_case_control =
@@ -834,7 +873,7 @@ void request_shared_attributes() {
   const char request[] =
     "{\"sharedKeys\":\"manual_control,manualControl,"
     "section_id,target_section_id,section,enabled,manual,"
-    "irrigate,valve,"
+    "irrigate,valve,valveState,valveState_Section_1,"
     "irrigation_duration_sec,duration_sec\"}";
 
   mqtt.publish(topic, request);
@@ -1088,7 +1127,7 @@ void handle_sensor_packet(
   );
   Serial.print("Sensor client_id: ");
   Serial.println(pkt->device_client_id);
-  print_sensor_readings(pkt->sensor_data);
+  // print_sensor_readings(pkt->sensor_data);
 
   queue_sensor_telemetry(pkt);
 }
@@ -1117,15 +1156,15 @@ void handle_section_sensor_packet(
   );
   Serial.print("Section client_id: ");
   Serial.println(pkt->device_client_id);
-  print_sensor_readings(pkt->section_data.sensors);
-  Serial.printf(
-    "water_flow_rate_l_min: %.3f\n",
-    pkt->section_data.water_flow_rate_l_min
-  );
-  Serial.printf(
-    "total_water_volume_l: %.3f\n",
-    pkt->section_data.total_water_volume_l
-  );
+  // print_sensor_readings(pkt->section_data.sensors);
+  // Serial.printf(
+  //   "water_flow_rate_l_min: %.3f\n",
+  //   pkt->section_data.water_flow_rate_l_min
+  // );
+  // Serial.printf(
+  //   "total_water_volume_l: %.3f\n",
+  //   pkt->section_data.total_water_volume_l
+  // );
 
   queue_section_sensor_telemetry(pkt);
 }
@@ -1139,16 +1178,16 @@ void handle_status_packet(
 ) {
   pkt->device_client_id[DEVICE_CLIENT_ID_LENGTH - 1] = '\0';
 
-  Serial.printf("Section %d status:\n", pkt->section_id);
-  Serial.print("Section client_id: ");
-  Serial.println(pkt->device_client_id);
-  Serial.printf("Alive: %s\n", pkt->status.alive ? "YES" : "NO");
-  Serial.printf(
-    "Valve: %s\n",
-    valve_state_name(pkt->status.valve_state)
-  );
-  Serial.printf("Uptime: %lu ms\n", pkt->status.uptime_ms);
-  Serial.printf("Packets sent: %lu\n", pkt->status.packets_sent);
+  // Serial.printf("Section %d status:\n", pkt->section_id);
+  // Serial.print("Section client_id: ");
+  // Serial.println(pkt->device_client_id);
+  // Serial.printf("Alive: %s\n", pkt->status.alive ? "YES" : "NO");
+  // Serial.printf(
+  //   "Valve: %s\n",
+  //   valve_state_name(pkt->status.valve_state)
+  // );
+  // Serial.printf("Uptime: %lu ms\n", pkt->status.uptime_ms);
+  // Serial.printf("Packets sent: %lu\n", pkt->status.packets_sent);
 
   queue_section_status_telemetry(pkt);
 }
