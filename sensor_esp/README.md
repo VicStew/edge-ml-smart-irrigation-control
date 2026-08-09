@@ -24,7 +24,9 @@ The pins are configuration defaults for an ESP32-C3 and can be changed at the to
 
 Before flashing:
 
-1. Set `NODE_ID`, `SECTION_ID`, and `SENSOR_NODE_CLIENT_ID`.
+1. Set `NODE_ID` and `SECTION_ID`. `SENSOR_NODE_CLIENT_ID` is retained as a
+   packet-level diagnostic identifier; the master no longer uses it to
+   authenticate to ThingsBoard.
 2. Set `section_mac` to the section node's Wi-Fi station MAC.
 3. Keep `WIFI_CHANNEL` and the packet structures identical across all three sketches.
 4. Measure the ADC values for the probe in dry and fully wet reference soil, then update `SOIL_MOISTURE_DRY_ADC` and `SOIL_MOISTURE_WET_ADC`.

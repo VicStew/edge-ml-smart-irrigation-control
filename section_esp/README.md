@@ -42,7 +42,9 @@ Update the pin definitions for the board and relay module being used. The relay 
 
 ## Calibration and configuration
 
-1. Set `SECTION_ID`, `SECTION_NODE_CLIENT_ID`, `master_mac`, and `WIFI_CHANNEL`.
+1. Set `SECTION_ID`, `master_mac`, and `WIFI_CHANNEL`.
+   `SECTION_NODE_CLIENT_ID` is retained as a packet-level diagnostic identifier;
+   the master no longer uses it to authenticate to ThingsBoard.
 2. Calibrate the soil probe and update `SOIL_MOISTURE_DRY_ADC` and `SOIL_MOISTURE_WET_ADC`.
 3. `FLOW_SENSOR_PULSES_PER_LITER` defaults to 60, corresponding to the commonly specified ZJ/YF-G1 relation `F(Hz) = Q(L/min)`. Verify the exact sensor label/datasheet and calibrate it with a known water volume before relying on totals.
 4. Confirm that both valve pins drive suitable relays rather than the valve motor directly.
@@ -52,7 +54,7 @@ Update the pin definitions for the board and relay module being used. The relay 
 
 1. Flow pulses are counted by an interrupt and converted to L/min and accumulated liters once per second.
 2. The section reads its AM2301A, soil-moisture probe, and DS18B20 every five seconds, then sends those readings plus flow data to the master.
-3. Sensor-node packets are forwarded to the master while preserving the sensor node ID and ThingsBoard client ID.
+3. Sensor-node packets are forwarded to the master while preserving the sensor node ID and diagnostic client ID.
 4. A command to irrigate energizes only the open relay. After 24 seconds, the relay switches off and the requested irrigation-duration timer starts.
 5. When the irrigation duration expires, the close relay runs for 24 seconds and then switches off. A close command without a duration starts closing immediately.
 6. Valve travel and timed irrigation use `millis()` state transitions, so sensing and ESP-NOW communication continue while the valve moves.

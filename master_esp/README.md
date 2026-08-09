@@ -17,11 +17,9 @@ ESP-NOW receive callbacks only validate and enqueue packets, keeping the
 ESP32 Wi-Fi task short. Telemetry also uses a FreeRTOS queue, so packet
 reception never edits the cloud task's queue storage concurrently.
 
-The modem still provides only one MQTT session at a time. To prevent sensor
-traffic from starving commands while telemetry is published with different
-device client IDs, the cloud task publishes one queued item, restores the
-subscribed master session immediately, and services MQTT for at least
-`MASTER_MQTT_SERVICE_WINDOW_MS` before switching identities again.
+The master keeps one ThingsBoard Gateway MQTT session open. Downstream
+telemetry and attribute updates share this connection, so the firmware no
+longer disconnects and changes MQTT identities when sensor traffic arrives.
 
 ## Required libraries
 
@@ -34,10 +32,23 @@ TensorFlow Lite Micro is no longer required by the firmware.
 
 ## Setup
 
-1. Configure the SIM800L pins, APN, ThingsBoard server, and master client ID in `master_esp.ino`.
-2. Set each sensor and section sketch's `*_NODE_CLIENT_ID` to that device's ThingsBoard MQTT client ID.
-3. Keep `WIFI_CHANNEL`, `DEVICE_CLIENT_ID_LENGTH`, message types, and packet structs identical in all three sketches.
+1. In ThingsBoard, edit the master device and enable **Is gateway**.
+2. Configure the SIM800L pins, APN, ThingsBoard server, and the gateway MQTT
+   credential in `MASTER_NODE_CLIENT_ID` in `master_esp.ino`.
+3. Keep `WIFI_CHANNEL`, `DEVICE_CLIENT_ID_LENGTH`, message types, and packet
+   structs identical in all three sketches.
 4. Flash the master, section nodes, and sensor nodes.
+
+The master generates deterministic ThingsBoard device names from ESP-NOW
+packet addressing:
+
+- A section controller is named `Section_<section_id>`, such as `Section_1`.
+- A sensor is named `Section_<section_id>_Sensor_<node_id>`, such as
+  `Section_1_Sensor_2`.
+
+The Gateway API creates these downstream devices if they do not already
+exist. To reuse existing ThingsBoard devices, rename them to match this
+scheme before starting the gateway.
 
 ## Sensor data model
 
@@ -64,26 +75,39 @@ The master caches readings by both section ID and sensor node ID. Once per `CONT
 
 At or below the threshold, irrigation starts for a duration scaled between `MIN_IRRIGATION_DURATION_SEC` and `MAX_IRRIGATION_DURATION_SEC`. Drier soil receives a longer duration. Invalid or missing soil-moisture readings never start an automatic cycle. ThingsBoard manual control continues to override automatic control for the selected section.
 
-## ThingsBoard telemetry
+## ThingsBoard gateway telemetry and control
 
-The master uses each packet's `device_client_id` directly as the ThingsBoard MQTT client ID, so adding a node does not require a routing-table entry in the master firmware. Section status telemetry includes the valve motion state, a `valve_open` flag, uptime, alive state, and packets sent.
+The master announces discovered nodes on `v1/gateway/connect`, publishes
+their measurements on `v1/gateway/telemetry`, and listens continuously on
+`v1/gateway/attributes`. Section status telemetry includes valve motion
+state, a `valve_open` flag, uptime, alive state, and packets sent.
 
-Manual control uses a shared `manual_control` (or `manualControl`) object:
+Set the boolean shared attribute `valveState` on a section device such as
+`Section_1`:
 
 ```json
 {
-  "section_id": 1,
+  "valveState": true
+}
+```
+
+`true` opens the section valve indefinitely and `false` closes it. When a
+section is first discovered after boot or an MQTT reconnection, the master
+requests the current attribute value before publishing its queued telemetry.
+The desired value is stored as a manual override so the automatic
+soil-moisture cycle cannot immediately reverse it.
+
+Timed manual control is also supported as a `manual_control` (or
+`manualControl`) shared attribute on the individual section device:
+
+```json
+{
   "enabled": true,
   "irrigate": true,
   "irrigation_duration_sec": 120
 }
 ```
 
-The duration begins after the valve finishes opening. Set `enabled` to `false` to release the override and send a close command to the section.
-
-For section 1, the boolean shared attribute `valveState_Section_1` is
-also supported. Setting it to `true` opens the valve indefinitely, and
-setting it to `false` closes the valve. The master requests its current
-value whenever it reconnects and listens for subsequent attribute changes.
-This attribute acts as a manual override of automatic soil-moisture control
-for section 1.
+The section ID comes from the target device name, so it is not included in
+the object. The duration begins after the valve finishes opening. Set
+`enabled` to `false` to release the override and close the section valve.

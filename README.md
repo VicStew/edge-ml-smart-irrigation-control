@@ -32,7 +32,9 @@ Each major folder has its own README with setup notes, execution order, runtime 
 
 1. Install the Arduino libraries documented in each firmware folder.
 
-2. Configure node IDs, MAC addresses, ThingsBoard client IDs, sensor pins, and soil/flow calibration constants.
+2. Configure node IDs, MAC addresses, the master ThingsBoard gateway
+   credential, sensor pins, and soil/flow calibration constants. Enable
+   **Is gateway** on the master device in ThingsBoard.
 
 3. Flash the firmware sketches:
 

@@ -3,6 +3,7 @@
 #include <esp_now.h>
 #include <math.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define TINY_GSM_MODEM_SIM800
@@ -24,7 +25,6 @@
 
 #define MAX_SECTIONS 10
 #define MAX_SENSOR_NODES 32
-#define SECTION_1_ID 1
 
 #define SIM800_RX_PIN 16
 #define SIM800_TX_PIN 17
@@ -36,9 +36,10 @@
 #define TELEMETRY_PAYLOAD_SIZE 512
 #define ESPNOW_QUEUE_LENGTH 16
 #define DEVICE_CLIENT_ID_LENGTH 40
+#define GATEWAY_DEVICE_NAME_LENGTH 48
+#define MAX_CONNECTED_GATEWAY_DEVICES 64
 #define GSM_RECONNECT_INTERVAL_MS 30000
 #define MQTT_RECONNECT_INTERVAL_MS 10000
-#define MASTER_MQTT_SERVICE_WINDOW_MS 500
 #define CLOUD_TASK_STACK_SIZE 8192
 #define FARM_TASK_STACK_SIZE 6144
 #define CLOUD_TASK_CORE 0
@@ -53,8 +54,13 @@ const char THINGSBOARD_SERVER[] = "mqtt.eu.thingsboard.cloud";
 const char MASTER_NODE_CLIENT_ID[] = "h0kqq9jqtrpufa6fxk9g";
 
 const char TB_TELEMETRY_TOPIC[] = "v1/devices/me/telemetry";
-const char TB_ATTRIBUTES_TOPIC[] = "v1/devices/me/attributes";
-const char TB_ATTRIBUTES_RESPONSE_TOPIC[] = "v1/devices/me/attributes/response/+";
+const char TB_GATEWAY_CONNECT_TOPIC[] = "v1/gateway/connect";
+const char TB_GATEWAY_TELEMETRY_TOPIC[] = "v1/gateway/telemetry";
+const char TB_GATEWAY_ATTRIBUTES_TOPIC[] = "v1/gateway/attributes";
+const char TB_GATEWAY_ATTRIBUTES_REQUEST_TOPIC[] =
+  "v1/gateway/attributes/request";
+const char TB_GATEWAY_ATTRIBUTES_RESPONSE_TOPIC[] =
+  "v1/gateway/attributes/response";
 
 /* ============================
    MESSAGE TYPES
@@ -210,9 +216,16 @@ TinyGsmClient gsm_client(modem);
 PubSubClient mqtt(gsm_client);
 
 typedef struct {
-  char device_client_id[DEVICE_CLIENT_ID_LENGTH];
+  bool gateway_device;
+  bool accepts_valve_control;
+  char device_name[GATEWAY_DEVICE_NAME_LENGTH];
   char payload[TELEMETRY_PAYLOAD_SIZE];
 } telemetry_message_t;
+
+typedef struct {
+  bool active;
+  char device_name[GATEWAY_DEVICE_NAME_LENGTH];
+} connected_gateway_device_t;
 
 typedef struct {
   farm_packet_t packet;
@@ -227,9 +240,9 @@ portMUX_TYPE farm_state_mux = portMUX_INITIALIZER_UNLOCKED;
 bool modem_ready = false;
 uint32_t last_gsm_reconnect_attempt = 0;
 uint32_t last_mqtt_reconnect_attempt = 0;
-uint32_t master_mqtt_connected_at = 0;
 uint32_t shared_attribute_request_id = 1;
-char active_thingsboard_client_id[DEVICE_CLIENT_ID_LENGTH] = "";
+connected_gateway_device_t
+  connected_gateway_devices[MAX_CONNECTED_GATEWAY_DEVICES];
 
 /* ============================
    TIMERS
@@ -275,6 +288,67 @@ bool text_is_empty(
   const char *text
 ) {
   return !text || text[0] == '\0';
+}
+
+void section_device_name(
+  uint8_t section_id,
+  char *destination,
+  size_t destination_size
+) {
+  snprintf(
+    destination,
+    destination_size,
+    "Section_%u",
+    section_id
+  );
+}
+
+void sensor_device_name(
+  uint8_t section_id,
+  uint8_t node_id,
+  char *destination,
+  size_t destination_size
+) {
+  snprintf(
+    destination,
+    destination_size,
+    "Section_%u_Sensor_%u",
+    section_id,
+    node_id
+  );
+}
+
+bool section_id_from_device_name(
+  const char *device_name,
+  uint8_t *section_id
+) {
+  const char prefix[] = "Section_";
+
+  if (
+    text_is_empty(device_name) ||
+    strncmp(device_name, prefix, sizeof(prefix) - 1) != 0
+  ) {
+    return false;
+  }
+
+  char *end = nullptr;
+  long parsed = strtol(
+    device_name + sizeof(prefix) - 1,
+    &end,
+    10
+  );
+
+  if (
+    end == nullptr ||
+    *end != '\0' ||
+    parsed < 0 ||
+    parsed >= MAX_SECTIONS
+  ) {
+    return false;
+  }
+
+  *section_id = (uint8_t)parsed;
+  return true;
 }
 
 float clamp_float(
@@ -347,19 +421,23 @@ bool add_section_peer(
 
 bool enqueue_telemetry(
   const char *payload,
-  const char *device_client_id
+  const char *device_name,
+  bool gateway_device,
+  bool accepts_valve_control
 ) {
-  if (text_is_empty(device_client_id)) {
-    Serial.println("Telemetry client_id missing");
+  if (text_is_empty(device_name)) {
+    Serial.println("Telemetry device name missing");
     return false;
   }
 
   telemetry_message_t message = {};
+  message.gateway_device = gateway_device;
+  message.accepts_valve_control = accepts_valve_control;
 
   copy_text(
-    message.device_client_id,
-    sizeof(message.device_client_id),
-    device_client_id
+    message.device_name,
+    sizeof(message.device_name),
+    device_name
   );
   copy_text(
     message.payload,
@@ -385,7 +463,6 @@ void queue_sensor_telemetry(
 
   doc["section_id"] = pkt->section_id;
   doc["node_id"] = pkt->node_id;
-  doc["device_client_id"] = pkt->device_client_id;
   doc["sample_time_ms"] = pkt->sensor_data.sample_time_ms;
   doc["ambient_temperature_c"] =
     pkt->sensor_data.ambient_temperature_c;
@@ -408,7 +485,15 @@ void queue_sensor_telemetry(
     return;
   }
 
-  if (enqueue_telemetry(payload, pkt->device_client_id)) {
+  char device_name[GATEWAY_DEVICE_NAME_LENGTH];
+  sensor_device_name(
+    pkt->section_id,
+    pkt->node_id,
+    device_name,
+    sizeof(device_name)
+  );
+
+  if (enqueue_telemetry(payload, device_name, true, false)) {
     Serial.println("Sensor telemetry queued");
   }
 }
@@ -420,7 +505,6 @@ void queue_section_sensor_telemetry(
 
   doc["section_id"] = pkt->section_id;
   doc["node_id"] = pkt->node_id;
-  doc["device_client_id"] = pkt->device_client_id;
   doc["sample_time_ms"] =
     pkt->section_data.sensors.sample_time_ms;
   doc["ambient_temperature_c"] =
@@ -449,7 +533,14 @@ void queue_section_sensor_telemetry(
     return;
   }
 
-  if (enqueue_telemetry(payload, pkt->device_client_id)) {
+  char device_name[GATEWAY_DEVICE_NAME_LENGTH];
+  section_device_name(
+    pkt->section_id,
+    device_name,
+    sizeof(device_name)
+  );
+
+  if (enqueue_telemetry(payload, device_name, true, true)) {
     Serial.println("Section sensor telemetry queued");
   }
 }
@@ -461,7 +552,6 @@ void queue_section_status_telemetry(
 
   doc["section_id"] = pkt->section_id;
   doc["node_id"] = pkt->node_id;
-  doc["device_client_id"] = pkt->device_client_id;
   doc["alive"] = pkt->status.alive;
   doc["valve_state"] = valve_state_name(pkt->status.valve_state);
   doc["valve_open"] = pkt->status.valve_state == VALVE_OPEN;
@@ -477,7 +567,14 @@ void queue_section_status_telemetry(
     return;
   }
 
-  enqueue_telemetry(payload, pkt->device_client_id);
+  char device_name[GATEWAY_DEVICE_NAME_LENGTH];
+  section_device_name(
+    pkt->section_id,
+    device_name,
+    sizeof(device_name)
+  );
+
+  enqueue_telemetry(payload, device_name, true, true);
 }
 
 /* ============================
@@ -628,55 +725,6 @@ int json_int_key(
   return object[key].as<int>();
 }
 
-bool extract_manual_control(
-  JsonObjectConst object,
-  uint8_t *section_id,
-  bool *manual_enabled,
-  control_payload_t *control
-) {
-  int section =
-    json_int_key(
-      object,
-      "section_id",
-      json_int_key(
-        object,
-        "target_section_id",
-        json_int_key(object, "section", -1)
-      )
-    );
-
-  if (section < 0 || section >= MAX_SECTIONS) {
-    Serial.println("Manual control missing valid section_id");
-    return false;
-  }
-
-  *section_id = (uint8_t)section;
-  *manual_enabled =
-    json_bool_key(
-      object,
-      "enabled",
-      json_bool_key(object, "manual", true)
-    );
-
-  control->irrigate =
-    json_bool_key(
-      object,
-      "irrigate",
-      json_bool_key(object, "valve", false)
-    );
-  int duration =
-    json_int_key(
-      object,
-      "irrigation_duration_sec",
-      json_int_key(object, "duration_sec", 0)
-    );
-
-  control->irrigation_duration_sec =
-    duration > 0 ? (uint16_t)duration : 0;
-
-  return true;
-}
-
 void publish_manual_control_result(
   uint8_t section_id,
   bool manual_enabled,
@@ -693,7 +741,12 @@ void publish_manual_control_result(
     serializeJson(doc, payload, sizeof(payload));
 
   if (length > 0 && length < sizeof(payload)) {
-    enqueue_telemetry(payload, MASTER_NODE_CLIENT_ID);
+    enqueue_telemetry(
+      payload,
+      MASTER_NODE_CLIENT_ID,
+      false,
+      false
+    );
   }
 }
 
@@ -743,23 +796,33 @@ bool forward_manual_control(
   return true;
 }
 
-void process_manual_control_object(
+void process_gateway_manual_control(
+  uint8_t section_id,
   JsonObjectConst object
 ) {
-  uint8_t section_id = 0;
-  bool manual_enabled = true;
-  control_payload_t control = {};
-
-  if (
-    !extract_manual_control(
+  bool manual_enabled =
+    json_bool_key(
       object,
-      &section_id,
-      &manual_enabled,
-      &control
-    )
-  ) {
-    return;
-  }
+      "enabled",
+      json_bool_key(object, "manual", true)
+    );
+
+  control_payload_t control = {};
+  control.irrigate =
+    json_bool_key(
+      object,
+      "irrigate",
+      json_bool_key(object, "valve", false)
+    );
+
+  int duration =
+    json_int_key(
+      object,
+      "irrigation_duration_sec",
+      json_int_key(object, "duration_sec", 0)
+    );
+  control.irrigation_duration_sec =
+    duration > 0 ? (uint16_t)duration : 0;
 
   bool forwarded =
     forward_manual_control(
@@ -773,80 +836,114 @@ void process_manual_control_object(
     manual_enabled,
     forwarded
   );
+}
+
+void process_section_valve_state(
+  uint8_t section_id,
+  JsonVariantConst valve_state,
+  const char *attribute_name
+) {
+  if (!valve_state.is<bool>()) {
+    Serial.printf(
+      "Ignoring %s for section %u: expected true or false\n",
+      attribute_name,
+      section_id
+    );
+    return;
+  }
+
+  control_payload_t control = {};
+  control.irrigate = valve_state.as<bool>();
+
+  bool forwarded =
+    forward_manual_control(
+      section_id,
+      true,
+      control
+    );
+
+  publish_manual_control_result(
+    section_id,
+    true,
+    forwarded
+  );
 
   Serial.printf(
-    "Manual control section %d %s\n",
+    "%s=%s; section %u valve command %s\n",
+    attribute_name,
+    control.irrigate ? "true" : "false",
     section_id,
-    forwarded ? "forwarded" : "queued as override"
+    forwarded ? "forwarded" : "queued until discovery"
   );
 }
 
-void process_shared_attributes(
-  JsonObjectConst attributes
+void process_gateway_attributes(
+  JsonObjectConst root
 ) {
-  const char section_1_valve_key[] =
-    "valveState_Section_1";
+  const char *device_name = root["device"] | "";
+  uint8_t section_id = 0;
 
-  if (json_has_key(attributes, section_1_valve_key)) {
-    JsonVariantConst valve_state =
-      attributes[section_1_valve_key];
-
-    if (!valve_state.is<bool>()) {
-      Serial.println(
-        "Ignoring valveState_Section_1: expected true or false"
-      );
-      return;
-    }
-
-    control_payload_t control = {};
-    control.irrigate = valve_state.as<bool>();
-
-    bool forwarded =
-      forward_manual_control(
-        SECTION_1_ID,
-        true,
-        control
-      );
-
-    publish_manual_control_result(
-      SECTION_1_ID,
-      true,
-      forwarded
-    );
-
+  if (!section_id_from_device_name(device_name, &section_id)) {
     Serial.printf(
-      "valveState_Section_1=%s; section 1 valve command %s\n",
-      control.irrigate ? "true" : "false",
-      forwarded ? "forwarded" : "queued until discovery"
+      "Ignoring gateway attributes for non-section device: %s\n",
+      device_name
     );
     return;
   }
 
-  JsonVariantConst snake_case_control =
+  JsonObjectConst attributes;
+
+  if (root["data"].is<JsonObjectConst>()) {
+    attributes = root["data"].as<JsonObjectConst>();
+  } else if (root["value"].is<JsonObjectConst>()) {
+    attributes = root["value"].as<JsonObjectConst>();
+  } else if (root["values"].is<JsonObjectConst>()) {
+    attributes = root["values"].as<JsonObjectConst>();
+  } else if (root["shared"].is<JsonObjectConst>()) {
+    attributes = root["shared"].as<JsonObjectConst>();
+  } else {
+    Serial.println("Gateway attribute message has no attribute object");
+    return;
+  }
+
+  if (json_has_key(attributes, "valveState")) {
+    process_section_valve_state(
+      section_id,
+      attributes["valveState"],
+      "valveState"
+    );
+    return;
+  }
+
+  JsonVariantConst manual_control =
     attributes["manual_control"];
-  JsonVariantConst camel_case_control =
-    attributes["manualControl"];
 
-  if (snake_case_control.is<JsonObjectConst>()) {
-    process_manual_control_object(
-      snake_case_control.as<JsonObjectConst>()
+  if (!manual_control.is<JsonObjectConst>()) {
+    manual_control = attributes["manualControl"];
+  }
+
+  if (manual_control.is<JsonObjectConst>()) {
+    process_gateway_manual_control(
+      section_id,
+      manual_control.as<JsonObjectConst>()
     );
     return;
   }
 
-  if (camel_case_control.is<JsonObjectConst>()) {
-    process_manual_control_object(
-      camel_case_control.as<JsonObjectConst>()
-    );
-    return;
-  }
+  char legacy_key[32];
+  snprintf(
+    legacy_key,
+    sizeof(legacy_key),
+    "valveState_Section_%u",
+    section_id
+  );
 
-  if (
-    json_has_key(attributes, "section_id") ||
-    json_has_key(attributes, "target_section_id") ||
-    json_has_key(attributes, "section")
-  ) {
-    process_manual_control_object(attributes);
+  if (json_has_key(attributes, legacy_key)) {
+    process_section_valve_state(
+      section_id,
+      attributes[legacy_key],
+      legacy_key
+    );
   }
 }
 
@@ -870,14 +967,15 @@ void mqtt_callback(
 
   JsonObjectConst root = doc.as<JsonObjectConst>();
 
-  if (root["shared"].is<JsonObjectConst>()) {
-    process_shared_attributes(
-      root["shared"].as<JsonObjectConst>()
-    );
+  if (
+    strcmp(topic, TB_GATEWAY_ATTRIBUTES_TOPIC) != 0 &&
+    strcmp(topic, TB_GATEWAY_ATTRIBUTES_RESPONSE_TOPIC) != 0
+  ) {
+    Serial.println("Ignoring unexpected ThingsBoard topic");
     return;
   }
 
-  process_shared_attributes(root);
+  process_gateway_attributes(root);
 }
 
 bool connect_gprs() {
@@ -907,52 +1005,129 @@ bool connect_gprs() {
   return true;
 }
 
-void request_shared_attributes() {
-  char topic[64];
-  snprintf(
-    topic,
-    sizeof(topic),
-    "v1/devices/me/attributes/request/%lu",
-    (unsigned long)shared_attribute_request_id++
-  );
-
-  const char request[] =
-    "{\"sharedKeys\":\"manual_control,manualControl,"
-    "section_id,target_section_id,section,enabled,manual,"
-    "irrigate,valve,valveState,valveState_Section_1,"
-    "irrigation_duration_sec,duration_sec\"}";
-
-  mqtt.publish(topic, request);
-}
-
-bool client_matches_active_connection(
-  const char *client_id
-) {
-  return (
-    mqtt.connected() &&
-    !text_is_empty(client_id) &&
-    strcmp(
-      active_thingsboard_client_id,
-      client_id
-    ) == 0
+void clear_connected_gateway_devices() {
+  memset(
+    connected_gateway_devices,
+    0,
+    sizeof(connected_gateway_devices)
   );
 }
 
-bool connect_thingsboard(
-  const char *client_id,
-  bool subscribe_for_commands
+bool gateway_device_is_connected(
+  const char *device_name
 ) {
-  if (text_is_empty(client_id)) {
-    return false;
+  for (
+    size_t i = 0;
+    i < MAX_CONNECTED_GATEWAY_DEVICES;
+    i++
+  ) {
+    if (
+      connected_gateway_devices[i].active &&
+      strcmp(
+        connected_gateway_devices[i].device_name,
+        device_name
+      ) == 0
+    ) {
+      return true;
+    }
   }
 
-  if (client_matches_active_connection(client_id)) {
+  return false;
+}
+
+void remember_connected_gateway_device(
+  const char *device_name
+) {
+  for (
+    size_t i = 0;
+    i < MAX_CONNECTED_GATEWAY_DEVICES;
+    i++
+  ) {
+    if (!connected_gateway_devices[i].active) {
+      connected_gateway_devices[i].active = true;
+      copy_text(
+        connected_gateway_devices[i].device_name,
+        sizeof(connected_gateway_devices[i].device_name),
+        device_name
+      );
+      return;
+    }
+  }
+
+  Serial.println("Connected gateway device table full");
+}
+
+bool request_gateway_shared_attributes(
+  const char *device_name
+) {
+  char request[192];
+  int length = snprintf(
+    request,
+    sizeof(request),
+    "{\"id\":%lu,\"device\":\"%s\","
+    "\"keys\":[\"valveState\",\"manual_control\","
+    "\"manualControl\"],\"client\":false}",
+    (unsigned long)shared_attribute_request_id++,
+    device_name
+  );
+
+  return (
+    length > 0 &&
+    length < (int)sizeof(request) &&
+    mqtt.publish(
+      TB_GATEWAY_ATTRIBUTES_REQUEST_TOPIC,
+      request
+    )
+  );
+}
+
+bool ensure_gateway_device_connected(
+  const char *device_name,
+  bool accepts_valve_control
+) {
+  if (gateway_device_is_connected(device_name)) {
     return true;
   }
 
+  char request[96];
+  int length = snprintf(
+    request,
+    sizeof(request),
+    "{\"device\":\"%s\"}",
+    device_name
+  );
+
+  if (
+    length <= 0 ||
+    length >= (int)sizeof(request) ||
+    !mqtt.publish(TB_GATEWAY_CONNECT_TOPIC, request)
+  ) {
+    Serial.printf(
+      "Failed to connect gateway device %s\n",
+      device_name
+    );
+    return false;
+  }
+
+  if (
+    accepts_valve_control &&
+    !request_gateway_shared_attributes(device_name)
+  ) {
+    Serial.printf(
+      "Failed to request shared attributes for %s\n",
+      device_name
+    );
+    return false;
+  }
+
+  remember_connected_gateway_device(device_name);
+  Serial.printf("Gateway device connected: %s\n", device_name);
+  return true;
+}
+
+bool connect_thingsboard_gateway() {
   if (mqtt.connected()) {
-    mqtt.disconnect();
-    active_thingsboard_client_id[0] = '\0';
+    return true;
   }
 
   if (!connect_gprs()) {
@@ -961,12 +1136,12 @@ bool connect_thingsboard(
 
   Serial.print("Connecting ThingsBoard MQTT: ");
   Serial.println(THINGSBOARD_SERVER);
-  Serial.print("Device client_id: ");
-  Serial.println(client_id);
+  Serial.print("Gateway client_id: ");
+  Serial.println(MASTER_NODE_CLIENT_ID);
 
   bool connected =
     mqtt.connect(
-      client_id
+      MASTER_NODE_CLIENT_ID
     );
 
   if (!connected) {
@@ -974,29 +1149,23 @@ bool connect_thingsboard(
       "ThingsBoard MQTT failed, state=%d\n",
       mqtt.state()
     );
-    active_thingsboard_client_id[0] = '\0';
     return false;
   }
 
-  copy_text(
-    active_thingsboard_client_id,
-    sizeof(active_thingsboard_client_id),
-    client_id
-  );
+  clear_connected_gateway_devices();
 
-  if (subscribe_for_commands) {
-    mqtt.subscribe(TB_ATTRIBUTES_TOPIC);
-    mqtt.subscribe(TB_ATTRIBUTES_RESPONSE_TOPIC);
-    request_shared_attributes();
-    master_mqtt_connected_at = millis();
+  bool subscribed =
+    mqtt.subscribe(TB_GATEWAY_ATTRIBUTES_TOPIC) &&
+    mqtt.subscribe(TB_GATEWAY_ATTRIBUTES_RESPONSE_TOPIC);
+
+  if (!subscribed) {
+    Serial.println("ThingsBoard gateway subscription failed");
+    mqtt.disconnect();
+    return false;
   }
 
-  Serial.println("ThingsBoard MQTT connected");
+  Serial.println("ThingsBoard gateway MQTT connected");
   return true;
-}
-
-bool connect_master_thingsboard() {
-  return connect_thingsboard(MASTER_NODE_CLIENT_ID, true);
 }
 
 void init_gsm_modem() {
@@ -1042,7 +1211,7 @@ void maintain_thingsboard() {
     return;
   }
 
-  if (client_matches_active_connection(MASTER_NODE_CLIENT_ID)) {
+  if (mqtt.connected()) {
     mqtt.loop();
     return;
   }
@@ -1057,22 +1226,15 @@ void maintain_thingsboard() {
   }
 
   last_mqtt_reconnect_attempt = now;
-  connect_master_thingsboard();
+  connect_thingsboard_gateway();
 }
 
 void publish_queued_telemetry() {
   if (
     !modem_ready ||
+    !mqtt.connected() ||
     telemetry_queue == nullptr ||
     uxQueueMessagesWaiting(telemetry_queue) == 0
-  ) {
-    return;
-  }
-
-  if (
-    client_matches_active_connection(MASTER_NODE_CLIENT_ID) &&
-    millis() - master_mqtt_connected_at <
-      MASTER_MQTT_SERVICE_WINDOW_MS
   ) {
     return;
   }
@@ -1083,39 +1245,48 @@ void publish_queued_telemetry() {
     return;
   }
 
-  bool is_master =
-    strcmp(
-      message.device_client_id,
-      MASTER_NODE_CLIENT_ID
-    ) == 0;
+  const char *topic = TB_TELEMETRY_TOPIC;
+  const char *payload = message.payload;
+  char gateway_payload[MQTT_BUFFER_SIZE];
 
-  if (
-    !connect_thingsboard(
-      message.device_client_id,
-      is_master
-    )
-  ) {
-    return;
+  if (message.gateway_device) {
+    if (
+      !ensure_gateway_device_connected(
+        message.device_name,
+        message.accepts_valve_control
+      )
+    ) {
+      return;
+    }
+
+    int length = snprintf(
+      gateway_payload,
+      sizeof(gateway_payload),
+      "{\"%s\":[{\"values\":%s}]}",
+      message.device_name,
+      message.payload
+    );
+
+    if (
+      length <= 0 ||
+      length >= (int)sizeof(gateway_payload)
+    ) {
+      Serial.println("Gateway telemetry payload too large");
+      xQueueReceive(telemetry_queue, &message, 0);
+      return;
+    }
+
+    topic = TB_GATEWAY_TELEMETRY_TOPIC;
+    payload = gateway_payload;
   }
 
-  if (
-    !mqtt.publish(
-      TB_TELEMETRY_TOPIC,
-      message.payload
-    )
-  ) {
+  if (!mqtt.publish(topic, payload)) {
     Serial.println("Telemetry publish failed");
     return;
   }
 
   xQueueReceive(telemetry_queue, &message, 0);
   Serial.println("Telemetry published to ThingsBoard");
-
-  // Restore the subscribed master session after every telemetry item. This
-  // prevents a busy queue from starving shared-attribute commands.
-  if (!client_matches_active_connection(MASTER_NODE_CLIENT_ID)) {
-    connect_master_thingsboard();
-  }
 }
 
 void register_section(
