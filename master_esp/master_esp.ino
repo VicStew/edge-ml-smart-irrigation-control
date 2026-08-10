@@ -7,6 +7,7 @@
 #include <string.h>
 
 #define TINY_GSM_MODEM_SIM800
+#define TINY_GSM_YIELD_MS 1
 #define SerialAT Serial1
 
 #include <ArduinoJson.h>
@@ -42,7 +43,9 @@
 #define MQTT_RECONNECT_INTERVAL_MS 10000
 #define CLOUD_TASK_STACK_SIZE 8192
 #define FARM_TASK_STACK_SIZE 6144
-#define CLOUD_TASK_CORE 0
+#define CLOUD_TASK_PRIORITY 1
+#define FARM_TASK_PRIORITY 2
+#define CLOUD_TASK_CORE 1
 #define FARM_TASK_CORE 1
 
 const char GSM_PIN[] = "";
@@ -1751,7 +1754,7 @@ void setup() {
       "farm_task",
       FARM_TASK_STACK_SIZE,
       nullptr,
-      2,
+      FARM_TASK_PRIORITY,
       nullptr,
       FARM_TASK_CORE
     );
@@ -1762,7 +1765,7 @@ void setup() {
       "cloud_task",
       CLOUD_TASK_STACK_SIZE,
       nullptr,
-      1,
+      CLOUD_TASK_PRIORITY,
       nullptr,
       CLOUD_TASK_CORE
     );

@@ -10,8 +10,14 @@ The master uses both ESP32 cores:
 
 - `farm_task` runs on core 1 at priority 2. It drains a FreeRTOS queue of
   ESP-NOW packets, updates sensor caches, and runs automatic irrigation.
-- `cloud_task` runs on core 0 at priority 1. It owns TinyGSM, MQTT, shared
-  attribute processing, and telemetry publication.
+- `cloud_task` runs on core 1 at priority 1. It owns TinyGSM, MQTT, shared
+  attribute processing, and telemetry publication. `TINY_GSM_YIELD_MS` is
+  set to 1 ms so TinyGSM's long polling operations block briefly and let the
+  idle task service the task watchdog.
+
+ESP32 Wi-Fi and ESP-NOW system work remains on core 0. Keeping the blocking
+SIM800L task on core 1 prevents modem startup from starving `IDLE0` and the
+Wi-Fi stack.
 
 ESP-NOW receive callbacks only validate and enqueue packets, keeping the
 ESP32 Wi-Fi task short. Telemetry also uses a FreeRTOS queue, so packet
