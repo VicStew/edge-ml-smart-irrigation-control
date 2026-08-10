@@ -1265,7 +1265,7 @@ void publish_queued_telemetry() {
     int length = snprintf(
       gateway_payload,
       sizeof(gateway_payload),
-      "{\"%s\":[{\"values\":%s}]}",
+      "{\"%s\":[%s]}",
       message.device_name,
       message.payload
     );

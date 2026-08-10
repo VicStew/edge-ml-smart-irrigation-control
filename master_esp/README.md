@@ -88,6 +88,26 @@ their measurements on `v1/gateway/telemetry`, and listens continuously on
 `v1/gateway/attributes`. Section status telemetry includes valve motion
 state, a `valve_open` flag, uptime, alive state, and packets sent.
 
+Gateway telemetry uses the server-timestamp format, placing each sensor
+field directly in the device array object. For example:
+
+```json
+{
+  "Section_1": [
+    {
+      "soil_moisture_percent": 42.5,
+      "water_flow_rate_l_min": 1.8,
+      "valve_state": "open"
+    }
+  ]
+}
+```
+
+This stores `soil_moisture_percent`, `water_flow_rate_l_min`, and
+`valve_state` as separate ThingsBoard telemetry keys. A `values` wrapper is
+only needed when sending an explicit Unix `ts`; the firmware uses the server
+receive time because its `sample_time_ms` is ESP32 uptime, not Unix time.
+
 Set the boolean shared attribute `valveState` on a section device such as
 `Section_1`:
 
