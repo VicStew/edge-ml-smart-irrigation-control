@@ -301,7 +301,7 @@ void section_device_name(
   snprintf(
     destination,
     destination_size,
-    "Section_%u",
+    "Section_Node_%u",
     section_id
   );
 }
@@ -315,9 +315,9 @@ void sensor_device_name(
   snprintf(
     destination,
     destination_size,
-    "Section_%u_Sensor_%u",
-    section_id,
-    node_id
+    "Sensor_%u_Node_%u",
+    node_id,
+    section_id
   );
 }
 
@@ -325,7 +325,7 @@ bool section_id_from_device_name(
   const char *device_name,
   uint8_t *section_id
 ) {
-  const char prefix[] = "Section_";
+  const char prefix[] = "Section_Node_";
 
   if (
     text_is_empty(device_name) ||

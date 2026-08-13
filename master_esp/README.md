@@ -48,9 +48,10 @@ TensorFlow Lite Micro is no longer required by the firmware.
 The master generates deterministic ThingsBoard device names from ESP-NOW
 packet addressing:
 
-- A section controller is named `Section_<section_id>`, such as `Section_1`.
-- A sensor is named `Section_<section_id>_Sensor_<node_id>`, such as
-  `Section_1_Sensor_2`.
+- A section controller is named `Section_Node_<section_id>`, such as
+  `Section_Node_1`.
+- A sensor is named `Sensor_<sensor_id>_Node_<section_id>`, such as
+  `Sensor_2_Node_1` for sensor 2 in section 1.
 
 The Gateway API creates these downstream devices if they do not already
 exist. To reuse existing ThingsBoard devices, rename them to match this
@@ -93,7 +94,7 @@ field directly in the device array object. For example:
 
 ```json
 {
-  "Section_1": [
+  "Section_Node_1": [
     {
       "soil_moisture_percent": 42.5,
       "water_flow_rate_l_min": 1.8,
@@ -109,7 +110,7 @@ only needed when sending an explicit Unix `ts`; the firmware uses the server
 receive time because its `sample_time_ms` is ESP32 uptime, not Unix time.
 
 Set the boolean shared attribute `valveState` on a section device such as
-`Section_1`:
+`Section_Node_1`:
 
 ```json
 {
