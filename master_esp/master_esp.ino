@@ -97,7 +97,8 @@ enum sensor_valid_flag_t : uint8_t {
   SENSOR_AMBIENT_VALID = 1 << 0,
   SENSOR_SOIL_MOISTURE_VALID = 1 << 1,
   SENSOR_SOIL_TEMPERATURE_VALID = 1 << 2,
-  SENSOR_MONITORED_VOLTAGE_VALID = 1 << 3
+  SENSOR_MONITORED_VOLTAGE_VALID = 1 << 3,
+  SENSOR_BATTERY_VOLTAGE_VALID = 1 << 4
 };
 
 /* ============================
@@ -113,6 +114,8 @@ typedef struct {
   float soil_temperature_c;
   uint16_t monitored_voltage_adc;
   float monitored_voltage_v;
+  uint16_t battery_voltage_adc;
+  float battery_voltage_v;
   uint8_t valid_fields;
 } __attribute__((packed)) sensor_readings_t;
 
@@ -173,11 +176,11 @@ typedef struct {
   };
 } __attribute__((packed)) farm_packet_t;
 
-static_assert(sizeof(sensor_readings_t) == 29, "Sensor payload layout changed");
-static_assert(sizeof(section_readings_t) == 37, "Section payload layout changed");
+static_assert(sizeof(sensor_readings_t) == 35, "Sensor payload layout changed");
+static_assert(sizeof(section_readings_t) == 43, "Section payload layout changed");
 static_assert(sizeof(control_payload_t) == 3, "Control payload layout changed");
 static_assert(sizeof(status_payload_t) == 10, "Status payload layout changed");
-static_assert(sizeof(farm_packet_t) == 96, "Farm packet layout changed");
+static_assert(sizeof(farm_packet_t) == 102, "Farm packet layout changed");
 static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too large");
 
 static const size_t FARM_PACKET_HEADER_SIZE =
@@ -545,6 +548,10 @@ void queue_sensor_telemetry(
     pkt->sensor_data.monitored_voltage_v;
   doc["sunlight_level"] =
     pkt->sensor_data.monitored_voltage_v;
+  doc["battery_voltage_adc"] =
+    pkt->sensor_data.battery_voltage_adc;
+  doc["battery_voltage_v"] =
+    pkt->sensor_data.battery_voltage_v;
   doc["valid_fields"] = pkt->sensor_data.valid_fields;
 
   char payload[TELEMETRY_PAYLOAD_SIZE];

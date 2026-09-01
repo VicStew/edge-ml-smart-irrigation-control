@@ -21,6 +21,7 @@
 #define AM2301A_PIN 27
 #define SOIL_MOISTURE_ADC_PIN 36
 #define SOLAR_VOLTAGE_ADC_PIN 39
+#define BATTERY_VOLTAGE_ADC_PIN 32
 #define DS18B20_PIN 14
 
 #define SOIL_MOISTURE_DRY_ADC 4095
@@ -30,6 +31,10 @@
 #define VOLTAGE_DIVIDER_R1_OHMS 8200.0f
 #define VOLTAGE_DIVIDER_R2_OHMS 1000.0f
 #define VOLTAGE_SAMPLE_COUNT 16
+
+#define BATTERY_VOLTAGE_SAMPLE_COUNT 32
+#define BATTERY_FILTER_ALPHA 0.20f
+#define BATTERY_VOLTAGE_DEADBAND_V 0.02f
 
 #define SEND_INTERVAL_MS 5000
 #define HEARTBEAT_INTERVAL_MS 15000
@@ -69,7 +74,8 @@ enum sensor_valid_flag_t : uint8_t {
   SENSOR_AMBIENT_VALID = 1 << 0,
   SENSOR_SOIL_MOISTURE_VALID = 1 << 1,
   SENSOR_SOIL_TEMPERATURE_VALID = 1 << 2,
-  SENSOR_MONITORED_VOLTAGE_VALID = 1 << 3
+  SENSOR_MONITORED_VOLTAGE_VALID = 1 << 3,
+  SENSOR_BATTERY_VOLTAGE_VALID = 1 << 4
 };
 
 /* ============================
@@ -85,6 +91,8 @@ typedef struct {
   float soil_temperature_c;
   uint16_t monitored_voltage_adc;
   float monitored_voltage_v;
+  uint16_t battery_voltage_adc;
+  float battery_voltage_v;
   uint8_t valid_fields;
 } __attribute__((packed)) sensor_readings_t;
 
@@ -145,11 +153,11 @@ typedef struct {
   };
 } __attribute__((packed)) farm_packet_t;
 
-static_assert(sizeof(sensor_readings_t) == 29, "Sensor payload layout changed");
-static_assert(sizeof(section_readings_t) == 37, "Section payload layout changed");
+static_assert(sizeof(sensor_readings_t) == 35, "Sensor payload layout changed");
+static_assert(sizeof(section_readings_t) == 43, "Section payload layout changed");
 static_assert(sizeof(control_payload_t) == 3, "Control payload layout changed");
 static_assert(sizeof(status_payload_t) == 10, "Status payload layout changed");
-static_assert(sizeof(farm_packet_t) == 96, "Farm packet layout changed");
+static_assert(sizeof(farm_packet_t) == 102, "Farm packet layout changed");
 static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too large");
 
 /* ============================
@@ -161,6 +169,7 @@ unsigned long last_heartbeat = 0;
 
 uint32_t packet_counter = 0;
 uint32_t packets_sent = 0;
+float filtered_battery_voltage_v = NAN;
 
 /* ============================
    HELPERS
@@ -255,6 +264,44 @@ void read_monitored_voltage(
   *voltage_v = adc_voltage_v * divider_ratio;
 }
 
+void read_battery_voltage(
+  uint16_t *adc_value,
+  float *voltage_v
+) {
+  uint32_t raw_total = 0;
+  uint32_t millivolt_total = 0;
+
+  for (uint8_t i = 0; i < BATTERY_VOLTAGE_SAMPLE_COUNT; i++) {
+    raw_total += analogRead(BATTERY_VOLTAGE_ADC_PIN);
+    millivolt_total += analogReadMilliVolts(BATTERY_VOLTAGE_ADC_PIN);
+    delay(2);
+  }
+
+  *adc_value =
+    (uint16_t)(raw_total / BATTERY_VOLTAGE_SAMPLE_COUNT);
+
+  float adc_voltage_v =
+    ((float)millivolt_total / BATTERY_VOLTAGE_SAMPLE_COUNT) /
+    1000.0f;
+  float divider_ratio =
+    (VOLTAGE_DIVIDER_R1_OHMS + VOLTAGE_DIVIDER_R2_OHMS) /
+    VOLTAGE_DIVIDER_R2_OHMS;
+  float measured_voltage_v = adc_voltage_v * divider_ratio;
+
+  if (!isfinite(filtered_battery_voltage_v)) {
+    filtered_battery_voltage_v = measured_voltage_v;
+  } else if (
+    fabsf(measured_voltage_v - filtered_battery_voltage_v) >=
+    BATTERY_VOLTAGE_DEADBAND_V
+  ) {
+    filtered_battery_voltage_v +=
+      BATTERY_FILTER_ALPHA *
+      (measured_voltage_v - filtered_battery_voltage_v);
+  }
+
+  *voltage_v = filtered_battery_voltage_v;
+}
+
 sensor_readings_t read_sensors() {
   sensor_readings_t reading = {};
 
@@ -303,6 +350,12 @@ sensor_readings_t read_sensors() {
   );
   reading.valid_fields |= SENSOR_MONITORED_VOLTAGE_VALID;
 
+  read_battery_voltage(
+    &reading.battery_voltage_adc,
+    &reading.battery_voltage_v
+  );
+  reading.valid_fields |= SENSOR_BATTERY_VOLTAGE_VALID;
+
   return reading;
 }
 
@@ -334,6 +387,14 @@ void print_sensor_readings(const sensor_readings_t &reading) {
   Serial.printf(
     "solar_panel_voltage_v (sunlight level): %.3f\n",
     reading.monitored_voltage_v
+  );
+  Serial.printf(
+    "battery_voltage_adc: %u\n",
+    reading.battery_voltage_adc
+  );
+  Serial.printf(
+    "battery_voltage_v: %.3f\n",
+    reading.battery_voltage_v
   );
 }
 
@@ -474,6 +535,8 @@ void init_sensors() {
   pinMode(SOIL_MOISTURE_ADC_PIN, INPUT);
   pinMode(SOLAR_VOLTAGE_ADC_PIN, INPUT);
   analogSetPinAttenuation(SOLAR_VOLTAGE_ADC_PIN, ADC_11db);
+  pinMode(BATTERY_VOLTAGE_ADC_PIN, INPUT);
+  analogSetPinAttenuation(BATTERY_VOLTAGE_ADC_PIN, ADC_0db);
 
   soil_temperature_sensor.begin();
   soil_temperature_sensor.setResolution(10);

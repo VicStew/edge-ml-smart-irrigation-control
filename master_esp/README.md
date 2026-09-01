@@ -88,6 +88,8 @@ Sensor-node telemetry additionally maps the generic packet voltage fields to:
 - `solar_panel_voltage_v`
 - `sunlight_level`
 - `sunlight_level_v`
+- `battery_voltage_adc`
+- `battery_voltage_v`
 
 Section-node readings contain the same fields plus:
 
@@ -96,7 +98,7 @@ Section-node readings contain the same fields plus:
 - `water_flow_rate_l_min`
 - `total_water_volume_l`
 
-The raw ADC values are retained alongside converted values. `valid_fields` bit 3 reports that the divider voltage was sampled, in addition to the existing ambient, soil-moisture, and soil-temperature validity bits.
+The raw ADC values are retained alongside converted values. `valid_fields` bit 3 reports the generic solar/section divider measurement; bit 4 reports the sensor-node battery measurement. These extend the existing ambient, soil-moisture, and soil-temperature validity bits.
 
 The master publishes its own `battery_voltage_adc`, `battery_voltage_v`, `pump_control`, `pump_on`, and `uptime_ms` telemetry every five seconds.
 
