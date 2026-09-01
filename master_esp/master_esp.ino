@@ -31,6 +31,15 @@
 #define SIM800_TX_PIN 17
 #define SIM800_BAUD 9600
 
+#define BATTERY_VOLTAGE_ADC_PIN 36
+#define PUMP_RELAY_PIN 25
+#define PUMP_RELAY_ON HIGH
+#define PUMP_RELAY_OFF LOW
+#define VOLTAGE_DIVIDER_R1_OHMS 8200.0f
+#define VOLTAGE_DIVIDER_R2_OHMS 1000.0f
+#define VOLTAGE_SAMPLE_COUNT 16
+#define MASTER_TELEMETRY_INTERVAL_MS 5000
+
 #define THINGSBOARD_PORT 1883
 #define MQTT_BUFFER_SIZE 768
 #define TELEMETRY_QUEUE_LENGTH 8
@@ -57,6 +66,13 @@ const char THINGSBOARD_SERVER[] = "mqtt.eu.thingsboard.cloud";
 const char MASTER_NODE_CLIENT_ID[] = "h0kqq9jqtrpufa6fxk9g";
 
 const char TB_TELEMETRY_TOPIC[] = "v1/devices/me/telemetry";
+const char TB_ATTRIBUTES_TOPIC[] = "v1/devices/me/attributes";
+const char TB_ATTRIBUTES_REQUEST_TOPIC_PREFIX[] =
+  "v1/devices/me/attributes/request/";
+const char TB_ATTRIBUTES_RESPONSE_TOPIC[] =
+  "v1/devices/me/attributes/response/+";
+const char TB_ATTRIBUTES_RESPONSE_TOPIC_PREFIX[] =
+  "v1/devices/me/attributes/response/";
 const char TB_GATEWAY_CONNECT_TOPIC[] = "v1/gateway/connect";
 const char TB_GATEWAY_TELEMETRY_TOPIC[] = "v1/gateway/telemetry";
 const char TB_GATEWAY_ATTRIBUTES_TOPIC[] = "v1/gateway/attributes";
@@ -80,7 +96,8 @@ enum msg_type_t : uint8_t {
 enum sensor_valid_flag_t : uint8_t {
   SENSOR_AMBIENT_VALID = 1 << 0,
   SENSOR_SOIL_MOISTURE_VALID = 1 << 1,
-  SENSOR_SOIL_TEMPERATURE_VALID = 1 << 2
+  SENSOR_SOIL_TEMPERATURE_VALID = 1 << 2,
+  SENSOR_MONITORED_VOLTAGE_VALID = 1 << 3
 };
 
 /* ============================
@@ -94,6 +111,8 @@ typedef struct {
   uint16_t soil_moisture_adc;
   float soil_moisture_percent;
   float soil_temperature_c;
+  uint16_t monitored_voltage_adc;
+  float monitored_voltage_v;
   uint8_t valid_fields;
 } __attribute__((packed)) sensor_readings_t;
 
@@ -154,11 +173,11 @@ typedef struct {
   };
 } __attribute__((packed)) farm_packet_t;
 
-static_assert(sizeof(sensor_readings_t) == 23, "Sensor payload layout changed");
-static_assert(sizeof(section_readings_t) == 31, "Section payload layout changed");
+static_assert(sizeof(sensor_readings_t) == 29, "Sensor payload layout changed");
+static_assert(sizeof(section_readings_t) == 37, "Section payload layout changed");
 static_assert(sizeof(control_payload_t) == 3, "Control payload layout changed");
 static_assert(sizeof(status_payload_t) == 10, "Status payload layout changed");
-static_assert(sizeof(farm_packet_t) == 90, "Farm packet layout changed");
+static_assert(sizeof(farm_packet_t) == 96, "Farm packet layout changed");
 static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too large");
 
 static const size_t FARM_PACKET_HEADER_SIZE =
@@ -241,6 +260,7 @@ SemaphoreHandle_t espnow_send_mutex = nullptr;
 portMUX_TYPE farm_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 bool modem_ready = false;
+bool pump_control_on = false;
 uint32_t last_gsm_reconnect_attempt = 0;
 uint32_t last_mqtt_reconnect_attempt = 0;
 uint32_t shared_attribute_request_id = 1;
@@ -252,7 +272,10 @@ connected_gateway_device_t
 ============================ */
 
 unsigned long last_control_cycle = 0;
+unsigned long last_master_telemetry = 0;
 uint32_t sequence_counter = 0;
+
+void queue_master_telemetry();
 
 /* ============================
    HELPER FUNCTIONS
@@ -370,6 +393,43 @@ float clamp_float(
   return value;
 }
 
+void read_master_battery_voltage(
+  uint16_t *adc_value,
+  float *voltage_v
+) {
+  uint32_t raw_total = 0;
+  uint32_t millivolt_total = 0;
+
+  for (uint8_t i = 0; i < VOLTAGE_SAMPLE_COUNT; i++) {
+    raw_total += analogRead(BATTERY_VOLTAGE_ADC_PIN);
+    millivolt_total += analogReadMilliVolts(BATTERY_VOLTAGE_ADC_PIN);
+    delay(2);
+  }
+
+  *adc_value = (uint16_t)(raw_total / VOLTAGE_SAMPLE_COUNT);
+
+  float adc_voltage_v =
+    ((float)millivolt_total / VOLTAGE_SAMPLE_COUNT) / 1000.0f;
+  float divider_ratio =
+    (VOLTAGE_DIVIDER_R1_OHMS + VOLTAGE_DIVIDER_R2_OHMS) /
+    VOLTAGE_DIVIDER_R2_OHMS;
+
+  *voltage_v = adc_voltage_v * divider_ratio;
+}
+
+void set_pump_control(bool enabled) {
+  pump_control_on = enabled;
+  digitalWrite(
+    PUMP_RELAY_PIN,
+    enabled ? PUMP_RELAY_ON : PUMP_RELAY_OFF
+  );
+
+  Serial.printf(
+    "Water pump: %s\n",
+    enabled ? "ON" : "OFF"
+  );
+}
+
 const char *valve_state_name(valve_state_t state) {
   switch (state) {
     case VALVE_CLOSED:
@@ -477,6 +537,14 @@ void queue_sensor_telemetry(
     pkt->sensor_data.soil_moisture_percent;
   doc["soil_temperature_c"] =
     pkt->sensor_data.soil_temperature_c;
+  doc["solar_panel_voltage_adc"] =
+    pkt->sensor_data.monitored_voltage_adc;
+  doc["solar_panel_voltage_v"] =
+    pkt->sensor_data.monitored_voltage_v;
+  doc["sunlight_level_v"] =
+    pkt->sensor_data.monitored_voltage_v;
+  doc["sunlight_level"] =
+    pkt->sensor_data.monitored_voltage_v;
   doc["valid_fields"] = pkt->sensor_data.valid_fields;
 
   char payload[TELEMETRY_PAYLOAD_SIZE];
@@ -520,6 +588,10 @@ void queue_section_sensor_telemetry(
     pkt->section_data.sensors.soil_moisture_percent;
   doc["soil_temperature_c"] =
     pkt->section_data.sensors.soil_temperature_c;
+  doc["battery_voltage_adc"] =
+    pkt->section_data.sensors.monitored_voltage_adc;
+  doc["battery_voltage_v"] =
+    pkt->section_data.sensors.monitored_voltage_v;
   doc["valid_fields"] =
     pkt->section_data.sensors.valid_fields;
   doc["water_flow_rate_l_min"] =
@@ -578,6 +650,43 @@ void queue_section_status_telemetry(
   );
 
   enqueue_telemetry(payload, device_name, true, true);
+}
+
+void queue_master_telemetry() {
+  uint16_t battery_voltage_adc = 0;
+  float battery_voltage_v = 0.0f;
+
+  read_master_battery_voltage(
+    &battery_voltage_adc,
+    &battery_voltage_v
+  );
+
+  StaticJsonDocument<256> doc;
+  doc["battery_voltage_adc"] = battery_voltage_adc;
+  doc["battery_voltage_v"] = battery_voltage_v;
+  doc["pump_control"] = pump_control_on;
+  doc["pump_on"] = pump_control_on;
+  doc["uptime_ms"] = millis();
+
+  char payload[256];
+  size_t length =
+    serializeJson(doc, payload, sizeof(payload));
+
+  if (length == 0 || length >= sizeof(payload)) {
+    Serial.println("Master telemetry payload too large");
+    return;
+  }
+
+  if (
+    enqueue_telemetry(
+      payload,
+      MASTER_NODE_CLIENT_ID,
+      false,
+      false
+    )
+  ) {
+    Serial.println("Master battery and pump telemetry queued");
+  }
 }
 
 /* ============================
@@ -726,6 +835,55 @@ int json_int_key(
   }
 
   return object[key].as<int>();
+}
+
+bool json_value_is_boolean_like(JsonVariantConst value) {
+  if (value.is<bool>() || value.is<int>()) {
+    return true;
+  }
+
+  if (!value.is<const char*>()) {
+    return false;
+  }
+
+  const char *text = value.as<const char*>();
+
+  return (
+    strcmp(text, "true") == 0 ||
+    strcmp(text, "false") == 0 ||
+    strcmp(text, "1") == 0 ||
+    strcmp(text, "0") == 0 ||
+    strcmp(text, "on") == 0 ||
+    strcmp(text, "off") == 0 ||
+    strcmp(text, "ON") == 0 ||
+    strcmp(text, "OFF") == 0
+  );
+}
+
+void process_master_attributes(JsonObjectConst root) {
+  JsonObjectConst attributes = root;
+
+  if (root["shared"].is<JsonObjectConst>()) {
+    attributes = root["shared"].as<JsonObjectConst>();
+  } else if (root["data"].is<JsonObjectConst>()) {
+    attributes = root["data"].as<JsonObjectConst>();
+  }
+
+  if (!json_has_key(attributes, "pump_control")) {
+    return;
+  }
+
+  JsonVariantConst requested_state = attributes["pump_control"];
+
+  if (!json_value_is_boolean_like(requested_state)) {
+    Serial.println("Ignoring pump_control: expected true or false");
+    return;
+  }
+
+  set_pump_control(
+    json_bool_value(requested_state, false)
+  );
+  queue_master_telemetry();
 }
 
 void publish_manual_control_result(
@@ -971,6 +1129,18 @@ void mqtt_callback(
   JsonObjectConst root = doc.as<JsonObjectConst>();
 
   if (
+    strcmp(topic, TB_ATTRIBUTES_TOPIC) == 0 ||
+    strncmp(
+      topic,
+      TB_ATTRIBUTES_RESPONSE_TOPIC_PREFIX,
+      strlen(TB_ATTRIBUTES_RESPONSE_TOPIC_PREFIX)
+    ) == 0
+  ) {
+    process_master_attributes(root);
+    return;
+  }
+
+  if (
     strcmp(topic, TB_GATEWAY_ATTRIBUTES_TOPIC) != 0 &&
     strcmp(topic, TB_GATEWAY_ATTRIBUTES_RESPONSE_TOPIC) != 0
   ) {
@@ -1084,6 +1254,26 @@ bool request_gateway_shared_attributes(
   );
 }
 
+bool request_master_shared_attributes() {
+  char topic[80];
+  int topic_length = snprintf(
+    topic,
+    sizeof(topic),
+    "%s%lu",
+    TB_ATTRIBUTES_REQUEST_TOPIC_PREFIX,
+    (unsigned long)shared_attribute_request_id++
+  );
+
+  return (
+    topic_length > 0 &&
+    topic_length < (int)sizeof(topic) &&
+    mqtt.publish(
+      topic,
+      "{\"sharedKeys\":\"pump_control\"}"
+    )
+  );
+}
+
 bool ensure_gateway_device_connected(
   const char *device_name,
   bool accepts_valve_control
@@ -1158,11 +1348,19 @@ bool connect_thingsboard_gateway() {
   clear_connected_gateway_devices();
 
   bool subscribed =
+    mqtt.subscribe(TB_ATTRIBUTES_TOPIC) &&
+    mqtt.subscribe(TB_ATTRIBUTES_RESPONSE_TOPIC) &&
     mqtt.subscribe(TB_GATEWAY_ATTRIBUTES_TOPIC) &&
     mqtt.subscribe(TB_GATEWAY_ATTRIBUTES_RESPONSE_TOPIC);
 
   if (!subscribed) {
     Serial.println("ThingsBoard gateway subscription failed");
+    mqtt.disconnect();
+    return false;
+  }
+
+  if (!request_master_shared_attributes()) {
+    Serial.println("Failed to request master shared attributes");
     mqtt.disconnect();
     return false;
   }
@@ -1328,6 +1526,14 @@ void print_sensor_readings(
   Serial.printf(
     "soil_temperature_c: %.2f\n",
     readings.soil_temperature_c
+  );
+  Serial.printf(
+    "monitored_voltage_adc: %u\n",
+    readings.monitored_voltage_adc
+  );
+  Serial.printf(
+    "monitored_voltage_v: %.3f\n",
+    readings.monitored_voltage_v
   );
 }
 
@@ -1702,6 +1908,16 @@ void cloud_task(void *parameter) {
   init_gsm_modem();
 
   for (;;) {
+    unsigned long now = millis();
+
+    if (
+      now - last_master_telemetry >=
+      MASTER_TELEMETRY_INTERVAL_MS
+    ) {
+      queue_master_telemetry();
+      last_master_telemetry = now;
+    }
+
     maintain_thingsboard();
     publish_queued_telemetry();
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -1714,6 +1930,14 @@ void cloud_task(void *parameter) {
 
 void setup() {
   Serial.begin(115200);
+
+  digitalWrite(PUMP_RELAY_PIN, PUMP_RELAY_OFF);
+  pinMode(PUMP_RELAY_PIN, OUTPUT);
+  set_pump_control(false);
+
+  analogReadResolution(12);
+  pinMode(BATTERY_VOLTAGE_ADC_PIN, INPUT);
+  analogSetPinAttenuation(BATTERY_VOLTAGE_ADC_PIN, ADC_11db);
 
   telemetry_queue = xQueueCreate(
     TELEMETRY_QUEUE_LENGTH,

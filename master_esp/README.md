@@ -1,6 +1,6 @@
 # Master ESP32 Firmware
 
-The master receives physical sensor readings from section ESP32 nodes, publishes telemetry through the SIM800L/ThingsBoard connection, and sends irrigation commands back over ESP-NOW.
+The master receives physical sensor readings from section ESP32 nodes, publishes telemetry through the SIM800L/ThingsBoard connection, sends irrigation commands back over ESP-NOW, monitors its battery, and controls the tank-fill water pump.
 
 The embedded TensorFlow Lite rainfall model is intentionally disabled and its deployed firmware files have been removed for now. The automatic irrigation algorithm remains active and uses calibrated soil-moisture readings directly.
 
@@ -36,6 +36,19 @@ longer disconnects and changes MQTT identities when sensor traffic arrives.
 
 TensorFlow Lite Micro is no longer required by the firmware.
 
+## Master wiring
+
+| Device | ESP32 pin |
+| --- | ---: |
+| SIM800L RX (ESP32 receives) | GPIO 16 |
+| SIM800L TX (ESP32 transmits) | GPIO 17 |
+| Battery voltage-divider output | GPIO 36 |
+| Pump relay control | GPIO 25 |
+
+Connect battery positive through R1 (8.2 kOhm) to GPIO36, connect R2 (1 kOhm) from GPIO36 to ground, and join battery and ESP32 grounds. The firmware applies the 9.2 divider ratio to a 16-sample averaged ADC reading. The theoretical source limit is 30.36 V at a 3.3 V ADC input; leave suitable margin for maximum charge voltage, resistor tolerance, and ADC range.
+
+GPIO25 only controls a suitable relay module or driver; it must not power the pump directly. The default relay logic is active-high. Change `PUMP_RELAY_ON` and `PUMP_RELAY_OFF` for an active-low relay. Firmware initialization forces the relay off before cloud control starts.
+
 ## Setup
 
 1. In ThingsBoard, edit the master device and enable **Is gateway**.
@@ -69,12 +82,23 @@ Every sensor reading contains:
 - `soil_temperature_c`
 - `valid_fields`
 
+Sensor-node telemetry additionally maps the generic packet voltage fields to:
+
+- `solar_panel_voltage_adc`
+- `solar_panel_voltage_v`
+- `sunlight_level`
+- `sunlight_level_v`
+
 Section-node readings contain the same fields plus:
 
+- `battery_voltage_adc`
+- `battery_voltage_v`
 - `water_flow_rate_l_min`
 - `total_water_volume_l`
 
-The raw soil ADC value is retained alongside the calibrated percentage. `valid_fields` reports whether the ambient, soil-moisture, and soil-temperature readings succeeded.
+The raw ADC values are retained alongside converted values. `valid_fields` bit 3 reports that the divider voltage was sampled, in addition to the existing ambient, soil-moisture, and soil-temperature validity bits.
+
+The master publishes its own `battery_voltage_adc`, `battery_voltage_v`, `pump_control`, `pump_on`, and `uptime_ms` telemetry every five seconds.
 
 ## Automatic irrigation
 
@@ -138,3 +162,15 @@ Timed manual control is also supported as a `manual_control` (or
 The section ID comes from the target device name, so it is not included in
 the object. The duration begins after the valve finishes opening. Set
 `enabled` to `false` to release the override and close the section valve.
+
+## Tank-fill pump control
+
+Set the boolean `pump_control` shared attribute on the master ThingsBoard device—not on a gateway child device:
+
+```json
+{
+  "pump_control": true
+}
+```
+
+`true` energizes the pump relay and `false` releases it. The master subscribes to live shared-attribute updates and requests the saved `pump_control` value after every MQTT connection, so the desired state is restored after reconnecting. On every reboot the pump starts off and remains off until a valid saved or live attribute is received. The reported `pump_on` telemetry reflects the relay command currently applied by the firmware.

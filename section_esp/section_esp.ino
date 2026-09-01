@@ -19,6 +19,7 @@
 
 #define AM2301A_PIN 27
 #define SOIL_MOISTURE_ADC_PIN 36
+#define BATTERY_VOLTAGE_ADC_PIN 39
 #define DS18B20_PIN 14
 #define WATER_FLOW_PIN 5
 
@@ -31,6 +32,10 @@
 #define SOIL_MOISTURE_DRY_ADC 4095
 #define SOIL_MOISTURE_WET_ADC 0
 #define SOIL_MOISTURE_SAMPLE_COUNT 8
+
+#define VOLTAGE_DIVIDER_R1_OHMS 8200.0f
+#define VOLTAGE_DIVIDER_R2_OHMS 1000.0f
+#define VOLTAGE_SAMPLE_COUNT 16
 
 // The ZJ-G1 datasheet calibration is F(Hz) = 1 * Q(L/min), or 60 pulses/L.
 // Replace this value with the result of a measured-volume calibration.
@@ -85,7 +90,8 @@ enum msg_type_t : uint8_t {
 enum sensor_valid_flag_t : uint8_t {
   SENSOR_AMBIENT_VALID = 1 << 0,
   SENSOR_SOIL_MOISTURE_VALID = 1 << 1,
-  SENSOR_SOIL_TEMPERATURE_VALID = 1 << 2
+  SENSOR_SOIL_TEMPERATURE_VALID = 1 << 2,
+  SENSOR_MONITORED_VOLTAGE_VALID = 1 << 3
 };
 
 /* ============================
@@ -99,6 +105,8 @@ typedef struct {
   uint16_t soil_moisture_adc;
   float soil_moisture_percent;
   float soil_temperature_c;
+  uint16_t monitored_voltage_adc;
+  float monitored_voltage_v;
   uint8_t valid_fields;
 } __attribute__((packed)) sensor_readings_t;
 
@@ -159,11 +167,11 @@ typedef struct {
   };
 } __attribute__((packed)) farm_packet_t;
 
-static_assert(sizeof(sensor_readings_t) == 23, "Sensor payload layout changed");
-static_assert(sizeof(section_readings_t) == 31, "Section payload layout changed");
+static_assert(sizeof(sensor_readings_t) == 29, "Sensor payload layout changed");
+static_assert(sizeof(section_readings_t) == 37, "Section payload layout changed");
 static_assert(sizeof(control_payload_t) == 3, "Control payload layout changed");
 static_assert(sizeof(status_payload_t) == 10, "Status payload layout changed");
-static_assert(sizeof(farm_packet_t) == 90, "Farm packet layout changed");
+static_assert(sizeof(farm_packet_t) == 96, "Farm packet layout changed");
 static_assert(sizeof(farm_packet_t) <= ESP_NOW_MAX_DATA_LEN, "Farm packet is too large");
 
 typedef struct {
@@ -379,6 +387,30 @@ uint16_t read_soil_moisture_adc() {
   return (uint16_t)(total / SOIL_MOISTURE_SAMPLE_COUNT);
 }
 
+void read_monitored_voltage(
+  uint16_t *adc_value,
+  float *voltage_v
+) {
+  uint32_t raw_total = 0;
+  uint32_t millivolt_total = 0;
+
+  for (uint8_t i = 0; i < VOLTAGE_SAMPLE_COUNT; i++) {
+    raw_total += analogRead(BATTERY_VOLTAGE_ADC_PIN);
+    millivolt_total += analogReadMilliVolts(BATTERY_VOLTAGE_ADC_PIN);
+    delay(2);
+  }
+
+  *adc_value = (uint16_t)(raw_total / VOLTAGE_SAMPLE_COUNT);
+
+  float adc_voltage_v =
+    ((float)millivolt_total / VOLTAGE_SAMPLE_COUNT) / 1000.0f;
+  float divider_ratio =
+    (VOLTAGE_DIVIDER_R1_OHMS + VOLTAGE_DIVIDER_R2_OHMS) /
+    VOLTAGE_DIVIDER_R2_OHMS;
+
+  *voltage_v = adc_voltage_v * divider_ratio;
+}
+
 sensor_readings_t read_sensors() {
   sensor_readings_t reading = {};
 
@@ -421,6 +453,12 @@ sensor_readings_t read_sensors() {
     Serial.println("DS18B20 read failed");
   }
 
+  read_monitored_voltage(
+    &reading.monitored_voltage_adc,
+    &reading.monitored_voltage_v
+  );
+  reading.valid_fields |= SENSOR_MONITORED_VOLTAGE_VALID;
+
   return reading;
 }
 
@@ -444,6 +482,14 @@ void print_sensor_readings(const sensor_readings_t &reading) {
   Serial.printf(
     "soil_temperature_c: %.2f\n",
     reading.soil_temperature_c
+  );
+  Serial.printf(
+    "battery_voltage_adc: %u\n",
+    reading.monitored_voltage_adc
+  );
+  Serial.printf(
+    "battery_voltage_v: %.3f\n",
+    reading.monitored_voltage_v
   );
 }
 
@@ -856,6 +902,8 @@ void init_sensors() {
 
   analogReadResolution(12);
   pinMode(SOIL_MOISTURE_ADC_PIN, INPUT);
+  pinMode(BATTERY_VOLTAGE_ADC_PIN, INPUT);
+  analogSetPinAttenuation(BATTERY_VOLTAGE_ADC_PIN, ADC_11db);
 
   soil_temperature_sensor.begin();
   soil_temperature_sensor.setResolution(10);

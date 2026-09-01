@@ -2,7 +2,7 @@
 
 This repository contains a prototype smart irrigation system that combines ESP32 field nodes, local ESP-NOW communication, physical soil and ambient sensors, section water-flow measurement, and an experimental rainfall-prediction research pipeline. The project was developed to show how irrigation decisions can be made close to the farm section being controlled instead of depending on a continuous cloud connection.
 
-The current firmware reads AM2301A, analog soil-moisture, and DS18B20 sensors. Section nodes add a ZJ-G1 water-flow reading. Sensor nodes send measurements through section controllers, and the master applies a direct soil-moisture irrigation algorithm before sending actuator commands back. Embedded AI inference is disabled for now; the rainfall model folders remain available for research and future integration.
+The current firmware reads AM2301A, analog soil-moisture, DS18B20, and divided voltage inputs. Sensor nodes use panel voltage as a sunlight-level reading, section and master nodes monitor battery voltage, and section nodes add a ZJ-G1 water-flow reading. Sensor nodes send measurements through section controllers, and the master applies a direct soil-moisture irrigation algorithm before sending actuator commands back. The master also controls a tank-fill pump from a ThingsBoard `pump_control` shared attribute. Embedded AI inference is disabled for now; the rainfall model folders remain available for research and future integration.
 
 ## Motivation
 
@@ -23,7 +23,7 @@ This project explores a lower-cost edge approach:
 | `rainfall_convolution/` | Experimental 1D CNN rainfall model using 24-hour weather sequences. |
 | `master_esp/` | Master ESP32 firmware. Receives sensor packets, publishes telemetry, and sends soil-moisture-based irrigation/control commands to section nodes. |
 | `section_esp/` | Section controller firmware. Reads ambient/soil/flow sensors, relays other sensor-node packets, and controls a two-relay motorized ball valve. |
-| `sensor_esp/` | Sensor node firmware for AM2301A ambient readings, analog soil moisture, and DS18B20 soil temperature. |
+| `sensor_esp/` | Sensor node firmware for AM2301A ambient readings, analog soil moisture, DS18B20 soil temperature, and solar-panel voltage/sunlight level. |
 | `report_artifacts/` | Project report source, bibliography, figures, style files, and generated report outputs. |
 
 Each major folder has its own README with setup notes, execution order, runtime flow, and file-level details.
@@ -46,7 +46,7 @@ Each major folder has its own README with setup notes, execution order, runtime 
 
 ## Sensor and Control Flow
 
-Sensor and section nodes transmit ambient temperature/humidity, raw and calibrated soil moisture, and soil temperature. Section nodes also transmit flow rate and accumulated water volume. The master caches readings per section and node, selects the driest valid reading per section, and scales a bounded irrigation duration from the measured soil-moisture deficit. Section nodes open and close each motorized valve with interlocked relays and non-blocking 24-second travel sequences. Manual ThingsBoard commands remain available as an override.
+Sensor and section nodes transmit ambient temperature/humidity, raw and calibrated soil moisture, soil temperature, and their voltage-divider measurement. Sensor nodes expose solar-panel voltage as `sunlight_level`/`sunlight_level_v`; section nodes expose battery voltage. Section nodes also transmit flow rate and accumulated water volume. The master caches readings per section and node, selects the driest valid reading per section, and scales a bounded irrigation duration from the measured soil-moisture deficit. Section nodes open and close each motorized valve with interlocked relays and non-blocking 24-second travel sequences. Manual ThingsBoard commands remain available as an override, and the master device's `pump_control` shared attribute directly controls its tank-fill pump relay.
 
 ## Report
 
