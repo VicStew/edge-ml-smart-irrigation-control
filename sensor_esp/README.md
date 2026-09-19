@@ -30,7 +30,7 @@ At a 3.3 V ADC-pin limit this divider corresponds to a theoretical 30.36 V sourc
 
 For the sensor battery, connect battery positive through another R1 (8.2 kOhm) to GPIO32 and R2 (1 kOhm) from GPIO32 to ground. A 4.2 V battery produces about 0.457 V at the ADC pin, so this ADC1 channel uses 0 dB attenuation for better resolution and remains available while ESP-NOW is active. Add a 0.1 µF ceramic capacitor from GPIO32 to ground, close to the ESP32, for additional hardware noise filtering.
 
-Each battery update averages 32 samples, then applies an exponential low-pass filter and a 20 mV deadband. This suppresses minor ADC jitter without interrupting ESP-NOW. Every five-second packet includes the result as `battery_voltage_adc` and `battery_voltage_v`.
+Each battery update averages 32 samples, then applies an exponential low-pass filter and a 20 mV deadband. This suppresses minor ADC jitter without interrupting ESP-NOW. Every five-second packet includes the result as `battery_voltage_adc` and `battery_voltage_v`. The master converts the voltage to the ThingsBoard `battery_percentage` field using configurable empty/full voltage limits.
 
 ## Configuration
 

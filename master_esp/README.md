@@ -48,7 +48,7 @@ TensorFlow Lite Micro is no longer required by the firmware.
 | Tank low-level float switch | GPIO 32 |
 | Tank high-level float switch | GPIO 33 |
 
-Connect battery positive through R1 (8.2 kOhm) to GPIO36, connect R2 (1 kOhm) from GPIO36 to ground, and join battery and ESP32 grounds. The firmware applies the 9.2 divider ratio to a 16-sample averaged ADC reading. The theoretical source limit is 30.36 V at a 3.3 V ADC input; leave suitable margin for maximum charge voltage, resistor tolerance, and ADC range.
+Connect battery positive through R1 (8.2 kOhm) to GPIO36, connect R2 (1 kOhm) from GPIO36 to ground, and join battery and ESP32 grounds. The firmware applies the 9.2 divider ratio to a 16-sample averaged ADC reading. The theoretical source limit is 30.36 V at a 3.3 V ADC input; leave suitable margin for maximum charge voltage, resistor tolerance, and ADC range. Battery percentage is a clamped linear estimate. Configure `MASTER_BATTERY_EMPTY_V`, `MASTER_BATTERY_FULL_V`, `SECTION_BATTERY_EMPTY_V`, `SECTION_BATTERY_FULL_V`, `SENSOR_BATTERY_EMPTY_V`, and `SENSOR_BATTERY_FULL_V` for the batteries actually installed.
 
 GPIO25 only controls a suitable relay module or driver; it must not power the pump directly. The default relay logic is active-high. Change `PUMP_RELAY_ON` and `PUMP_RELAY_OFF` for an active-low relay. Firmware initialization forces the relay off before cloud control starts.
 
@@ -95,29 +95,29 @@ Sensor-node telemetry additionally maps the generic packet voltage fields to:
 - `sunlight_level_v`
 - `battery_voltage_adc`
 - `battery_voltage_v`
+- `battery_percentage`
 
 Section-node readings contain the same fields plus:
 
 - `battery_voltage_adc`
 - `battery_voltage_v`
+- `battery_percentage`
 - `water_flow_rate_l_min`
 - `total_water_volume_l`
 
 The raw ADC values are retained alongside converted values. `valid_fields` bit 3 reports the generic solar/section divider measurement; bit 4 reports the sensor-node battery measurement. These extend the existing ambient, soil-moisture, and soil-temperature validity bits.
 
-The master publishes its own battery, pump, tank-level, and uptime telemetry every five seconds.
+The master publishes its own battery voltage, `battery_percentage`, low-level tank state, overall tank state, and uptime every five seconds. Pump state, high-float fields, and manual-control results are intentionally not emitted as telemetry.
 
 ## Tank water-level monitoring
 
-Both float inputs use a 50 ms software debounce. Their telemetry keys are:
+Both float inputs use a 50 ms software debounce. The master uses both inputs internally, while its telemetry keys are:
 
 - `tank_low_float_wet`: water has reached the low-mounted switch.
-- `tank_high_float_wet`: water has reached the high-mounted switch.
 - `tank_low_level`: water is below the low switch.
-- `tank_high_level`: water has reached the high switch.
 - `tank_level_state`: `low`, `normal`, `high`, or `sensor_fault`.
 
-The `sensor_fault` state means the high switch reports wet while the low switch reports dry, which is physically inconsistent when both switches are mounted correctly. The switches are monitoring inputs only; they do not automatically start or stop the pump.
+The `sensor_fault` state means the high switch reports wet while the low switch reports dry, which is physically inconsistent when both switches are mounted correctly. In autonomous pump mode, the low switch starts filling and the high switch stops it. The high switch also takes precedence and stops the pump for the inconsistent sensor state.
 
 ## Automatic irrigation
 
@@ -184,12 +184,13 @@ the object. The duration begins after the valve finishes opening. Set
 
 ## Tank-fill pump control
 
-Set the boolean `pump_control` shared attribute on the master ThingsBoard device—not on a gateway child device:
+Set the boolean `manual_control` shared attribute on the master ThingsBoard device—not on a gateway child device—to choose the pump mode. `true` selects manual mode and `false` selects autonomous mode. In manual mode, set the boolean `pump_state` shared attribute to control the relay:
 
 ```json
 {
-  "pump_control": true
+  "manual_control": true,
+  "pump_state": true
 }
 ```
 
-`true` energizes the pump relay and `false` releases it. The master subscribes to live shared-attribute updates and requests the saved `pump_control` value after every MQTT connection, so the desired state is restored after reconnecting. On every reboot the pump starts off and remains off until a valid saved or live attribute is received. The reported `pump_on` telemetry reflects the relay command currently applied by the firmware.
+With `manual_control` set to `false`, `pump_state` is remembered but does not override the float switches: the pump starts when the tank is below the low switch and remains on until water reaches the high switch. The master subscribes to live shared-attribute updates and requests both saved values after every MQTT connection. It boots in manual mode with the pump off as a fail-safe.

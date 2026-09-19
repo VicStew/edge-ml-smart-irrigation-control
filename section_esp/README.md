@@ -42,7 +42,7 @@ Install `DHTNEW`, `OneWire`, `DallasTemperature`, and `FlowSensor` before compil
 
 Update the pin definitions for the board and relay module being used. The relay outputs default to active-high; change `VALVE_RELAY_ON` and `VALVE_RELAY_OFF` for an active-low module. Do not connect a 5 V flow-sensor output directly to an ESP32 input; use an open-collector pull-up to 3.3 V or suitable level shifting.
 
-Connect battery positive through R1 (8.2 kOhm) to GPIO39, connect R2 (1 kOhm) from GPIO39 to ground, and join battery and ESP32 grounds. The 9.2 divider ratio is applied to a 16-sample averaged ADC measurement. The section device publishes `battery_voltage_adc` and `battery_voltage_v` through the master. The theoretical source limit is 30.36 V at a 3.3 V ADC input; leave margin for battery maximum charge voltage, resistor tolerance, and ADC range.
+Connect battery positive through R1 (8.2 kOhm) to GPIO39, connect R2 (1 kOhm) from GPIO39 to ground, and join battery and ESP32 grounds. The 9.2 divider ratio is applied to a 16-sample averaged ADC measurement. The section device publishes `battery_voltage_adc`, `battery_voltage_v`, and a master-calculated `battery_percentage`. The theoretical source limit is 30.36 V at a 3.3 V ADC input; leave margin for battery maximum charge voltage, resistor tolerance, and ADC range.
 
 ## Calibration and configuration
 

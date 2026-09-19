@@ -42,6 +42,12 @@
 #define VOLTAGE_DIVIDER_R1_OHMS 8200.0f
 #define VOLTAGE_DIVIDER_R2_OHMS 1000.0f
 #define VOLTAGE_SAMPLE_COUNT 16
+#define MASTER_BATTERY_EMPTY_V 10.5f
+#define MASTER_BATTERY_FULL_V 12.6f
+#define SECTION_BATTERY_EMPTY_V 10.5f
+#define SECTION_BATTERY_FULL_V 12.6f
+#define SENSOR_BATTERY_EMPTY_V 3.0f
+#define SENSOR_BATTERY_FULL_V 4.2f
 #define MASTER_TELEMETRY_INTERVAL_MS 5000
 
 #define THINGSBOARD_PORT 1883
@@ -272,7 +278,9 @@ SemaphoreHandle_t espnow_send_mutex = nullptr;
 portMUX_TYPE farm_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 bool modem_ready = false;
-bool pump_control_on = false;
+volatile bool pump_is_on = false;
+volatile bool requested_pump_state = false;
+volatile bool pump_manual_control = true;
 volatile bool tank_low_float_wet = false;
 volatile bool tank_high_float_wet = false;
 float_switch_debounce_t tank_low_float_debounce = {};
@@ -409,6 +417,27 @@ float clamp_float(
   return value;
 }
 
+float battery_percentage_from_voltage(
+  float voltage_v,
+  float empty_voltage_v,
+  float full_voltage_v
+) {
+  if (
+    !isfinite(voltage_v) ||
+    full_voltage_v <= empty_voltage_v
+  ) {
+    return 0.0f;
+  }
+
+  return clamp_float(
+    100.0f *
+      (voltage_v - empty_voltage_v) /
+      (full_voltage_v - empty_voltage_v),
+    0.0f,
+    100.0f
+  );
+}
+
 void read_master_battery_voltage(
   uint16_t *adc_value,
   float *voltage_v
@@ -433,8 +462,12 @@ void read_master_battery_voltage(
   *voltage_v = adc_voltage_v * divider_ratio;
 }
 
-void set_pump_control(bool enabled) {
-  pump_control_on = enabled;
+void set_pump_output(bool enabled) {
+  if (pump_is_on == enabled) {
+    return;
+  }
+
+  pump_is_on = enabled;
   digitalWrite(
     PUMP_RELAY_PIN,
     enabled ? PUMP_RELAY_ON : PUMP_RELAY_OFF
@@ -444,6 +477,27 @@ void set_pump_control(bool enabled) {
     "Water pump: %s\n",
     enabled ? "ON" : "OFF"
   );
+}
+
+void update_pump_control() {
+  bool target_state = pump_is_on;
+  bool manual_control;
+  bool manual_state;
+
+  portENTER_CRITICAL(&farm_state_mux);
+  manual_control = pump_manual_control;
+  manual_state = requested_pump_state;
+  portEXIT_CRITICAL(&farm_state_mux);
+
+  if (manual_control) {
+    target_state = manual_state;
+  } else if (tank_high_float_wet) {
+    target_state = false;
+  } else if (!tank_low_float_wet) {
+    target_state = true;
+  }
+
+  set_pump_output(target_state);
 }
 
 bool float_switch_is_wet(uint8_t pin) {
@@ -637,6 +691,11 @@ void queue_sensor_telemetry(
     pkt->sensor_data.battery_voltage_adc;
   doc["battery_voltage_v"] =
     pkt->sensor_data.battery_voltage_v;
+  doc["battery_percentage"] = battery_percentage_from_voltage(
+    pkt->sensor_data.battery_voltage_v,
+    SENSOR_BATTERY_EMPTY_V,
+    SENSOR_BATTERY_FULL_V
+  );
   doc["valid_fields"] = pkt->sensor_data.valid_fields;
 
   char payload[TELEMETRY_PAYLOAD_SIZE];
@@ -684,6 +743,11 @@ void queue_section_sensor_telemetry(
     pkt->section_data.sensors.monitored_voltage_adc;
   doc["battery_voltage_v"] =
     pkt->section_data.sensors.monitored_voltage_v;
+  doc["battery_percentage"] = battery_percentage_from_voltage(
+    pkt->section_data.sensors.monitored_voltage_v,
+    SECTION_BATTERY_EMPTY_V,
+    SECTION_BATTERY_FULL_V
+  );
   doc["valid_fields"] =
     pkt->section_data.sensors.valid_fields;
   doc["water_flow_rate_l_min"] =
@@ -759,12 +823,13 @@ void queue_master_telemetry() {
   StaticJsonDocument<384> doc;
   doc["battery_voltage_adc"] = battery_voltage_adc;
   doc["battery_voltage_v"] = battery_voltage_v;
-  doc["pump_control"] = pump_control_on;
-  doc["pump_on"] = pump_control_on;
+  doc["battery_percentage"] = battery_percentage_from_voltage(
+    battery_voltage_v,
+    MASTER_BATTERY_EMPTY_V,
+    MASTER_BATTERY_FULL_V
+  );
   doc["tank_low_float_wet"] = low_float_wet;
-  doc["tank_high_float_wet"] = high_float_wet;
   doc["tank_low_level"] = !low_float_wet;
-  doc["tank_high_level"] = high_float_wet;
   doc["tank_level_state"] = tank_level_state_name(
     low_float_wet,
     high_float_wet
@@ -788,7 +853,7 @@ void queue_master_telemetry() {
       false
     )
   ) {
-    Serial.println("Master battery and pump telemetry queued");
+    Serial.println("Master battery and tank telemetry queued");
   }
 }
 
@@ -972,45 +1037,50 @@ void process_master_attributes(JsonObjectConst root) {
     attributes = root["data"].as<JsonObjectConst>();
   }
 
-  if (!json_has_key(attributes, "pump_control")) {
-    return;
+  bool next_manual_control;
+  bool next_pump_state;
+  bool changed = false;
+
+  portENTER_CRITICAL(&farm_state_mux);
+  next_manual_control = pump_manual_control;
+  next_pump_state = requested_pump_state;
+  portEXIT_CRITICAL(&farm_state_mux);
+
+  if (json_has_key(attributes, "manual_control")) {
+    JsonVariantConst requested_mode = attributes["manual_control"];
+
+    if (!json_value_is_boolean_like(requested_mode)) {
+      Serial.println("Ignoring manual_control: expected true or false");
+    } else {
+      next_manual_control = json_bool_value(requested_mode, true);
+      changed = true;
+      Serial.printf(
+        "Pump control mode: %s\n",
+        next_manual_control ? "MANUAL" : "AUTONOMOUS"
+      );
+    }
   }
 
-  JsonVariantConst requested_state = attributes["pump_control"];
+  if (json_has_key(attributes, "pump_state")) {
+    JsonVariantConst requested_state = attributes["pump_state"];
 
-  if (!json_value_is_boolean_like(requested_state)) {
-    Serial.println("Ignoring pump_control: expected true or false");
-    return;
+    if (!json_value_is_boolean_like(requested_state)) {
+      Serial.println("Ignoring pump_state: expected true or false");
+    } else {
+      next_pump_state = json_bool_value(requested_state, false);
+      changed = true;
+      Serial.printf(
+        "Requested pump state: %s\n",
+        next_pump_state ? "ON" : "OFF"
+      );
+    }
   }
 
-  set_pump_control(
-    json_bool_value(requested_state, false)
-  );
-  queue_master_telemetry();
-}
-
-void publish_manual_control_result(
-  uint8_t section_id,
-  bool manual_enabled,
-  bool forwarded
-) {
-  StaticJsonDocument<192> doc;
-
-  doc["manual_control_section_id"] = section_id;
-  doc["manual_control_enabled"] = manual_enabled;
-  doc["manual_control_forwarded"] = forwarded;
-
-  char payload[192];
-  size_t length =
-    serializeJson(doc, payload, sizeof(payload));
-
-  if (length > 0 && length < sizeof(payload)) {
-    enqueue_telemetry(
-      payload,
-      MASTER_NODE_CLIENT_ID,
-      false,
-      false
-    );
+  if (changed) {
+    portENTER_CRITICAL(&farm_state_mux);
+    pump_manual_control = next_manual_control;
+    requested_pump_state = next_pump_state;
+    portEXIT_CRITICAL(&farm_state_mux);
   }
 }
 
@@ -1095,10 +1165,10 @@ void process_gateway_manual_control(
       control
     );
 
-  publish_manual_control_result(
+  Serial.printf(
+    "Section %u manual command %s\n",
     section_id,
-    manual_enabled,
-    forwarded
+    forwarded ? "forwarded" : "queued until discovery"
   );
 }
 
@@ -1125,12 +1195,6 @@ void process_section_valve_state(
       true,
       control
     );
-
-  publish_manual_control_result(
-    section_id,
-    true,
-    forwarded
-  );
 
   Serial.printf(
     "%s=%s; section %u valve command %s\n",
@@ -1372,7 +1436,7 @@ bool request_master_shared_attributes() {
     topic_length < (int)sizeof(topic) &&
     mqtt.publish(
       topic,
-      "{\"sharedKeys\":\"pump_control\"}"
+      "{\"sharedKeys\":\"pump_state,manual_control\"}"
     )
   );
 }
@@ -1989,6 +2053,7 @@ void farm_task(void *parameter) {
 
   for (;;) {
     update_float_switches(millis());
+    update_pump_control();
 
     if (
       xQueueReceive(
@@ -2038,7 +2103,7 @@ void setup() {
 
   digitalWrite(PUMP_RELAY_PIN, PUMP_RELAY_OFF);
   pinMode(PUMP_RELAY_PIN, OUTPUT);
-  set_pump_control(false);
+  pump_is_on = false;
 
   initialize_float_switches();
 
