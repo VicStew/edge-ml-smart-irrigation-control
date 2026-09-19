@@ -33,8 +33,12 @@
 
 #define BATTERY_VOLTAGE_ADC_PIN 36
 #define PUMP_RELAY_PIN 25
+#define TANK_LOW_FLOAT_PIN 32
+#define TANK_HIGH_FLOAT_PIN 33
 #define PUMP_RELAY_ON HIGH
 #define PUMP_RELAY_OFF LOW
+#define FLOAT_SWITCH_WET_STATE LOW
+#define FLOAT_SWITCH_DEBOUNCE_MS 50UL
 #define VOLTAGE_DIVIDER_R1_OHMS 8200.0f
 #define VOLTAGE_DIVIDER_R2_OHMS 1000.0f
 #define VOLTAGE_SAMPLE_COUNT 16
@@ -257,6 +261,11 @@ typedef struct {
   uint8_t sender_mac[6];
 } received_packet_t;
 
+typedef struct {
+  bool last_raw_wet;
+  unsigned long raw_changed_ms;
+} float_switch_debounce_t;
+
 QueueHandle_t telemetry_queue = nullptr;
 QueueHandle_t received_packet_queue = nullptr;
 SemaphoreHandle_t espnow_send_mutex = nullptr;
@@ -264,6 +273,10 @@ portMUX_TYPE farm_state_mux = portMUX_INITIALIZER_UNLOCKED;
 
 bool modem_ready = false;
 bool pump_control_on = false;
+volatile bool tank_low_float_wet = false;
+volatile bool tank_high_float_wet = false;
+float_switch_debounce_t tank_low_float_debounce = {};
+float_switch_debounce_t tank_high_float_debounce = {};
 uint32_t last_gsm_reconnect_attempt = 0;
 uint32_t last_mqtt_reconnect_attempt = 0;
 uint32_t shared_attribute_request_id = 1;
@@ -431,6 +444,78 @@ void set_pump_control(bool enabled) {
     "Water pump: %s\n",
     enabled ? "ON" : "OFF"
   );
+}
+
+bool float_switch_is_wet(uint8_t pin) {
+  return digitalRead(pin) == FLOAT_SWITCH_WET_STATE;
+}
+
+void initialize_float_switches() {
+  pinMode(TANK_LOW_FLOAT_PIN, INPUT_PULLUP);
+  pinMode(TANK_HIGH_FLOAT_PIN, INPUT_PULLUP);
+
+  unsigned long now = millis();
+  bool low_wet = float_switch_is_wet(TANK_LOW_FLOAT_PIN);
+  bool high_wet = float_switch_is_wet(TANK_HIGH_FLOAT_PIN);
+
+  tank_low_float_wet = low_wet;
+  tank_high_float_wet = high_wet;
+  tank_low_float_debounce.last_raw_wet = low_wet;
+  tank_low_float_debounce.raw_changed_ms = now;
+  tank_high_float_debounce.last_raw_wet = high_wet;
+  tank_high_float_debounce.raw_changed_ms = now;
+}
+
+void update_float_switch(
+  uint8_t pin,
+  float_switch_debounce_t *debounce,
+  volatile bool *stable_wet,
+  unsigned long now
+) {
+  bool raw_wet = float_switch_is_wet(pin);
+
+  if (raw_wet != debounce->last_raw_wet) {
+    debounce->last_raw_wet = raw_wet;
+    debounce->raw_changed_ms = now;
+    return;
+  }
+
+  if (
+    raw_wet != *stable_wet &&
+    now - debounce->raw_changed_ms >= FLOAT_SWITCH_DEBOUNCE_MS
+  ) {
+    *stable_wet = raw_wet;
+  }
+}
+
+void update_float_switches(unsigned long now) {
+  update_float_switch(
+    TANK_LOW_FLOAT_PIN,
+    &tank_low_float_debounce,
+    &tank_low_float_wet,
+    now
+  );
+  update_float_switch(
+    TANK_HIGH_FLOAT_PIN,
+    &tank_high_float_debounce,
+    &tank_high_float_wet,
+    now
+  );
+}
+
+const char *tank_level_state_name(
+  bool low_float_wet,
+  bool high_float_wet
+) {
+  if (high_float_wet && !low_float_wet) {
+    return "sensor_fault";
+  }
+
+  if (high_float_wet) {
+    return "high";
+  }
+
+  return low_float_wet ? "normal" : "low";
 }
 
 const char *valve_state_name(valve_state_t state) {
@@ -668,14 +753,25 @@ void queue_master_telemetry() {
     &battery_voltage_v
   );
 
-  StaticJsonDocument<256> doc;
+  bool low_float_wet = tank_low_float_wet;
+  bool high_float_wet = tank_high_float_wet;
+
+  StaticJsonDocument<384> doc;
   doc["battery_voltage_adc"] = battery_voltage_adc;
   doc["battery_voltage_v"] = battery_voltage_v;
   doc["pump_control"] = pump_control_on;
   doc["pump_on"] = pump_control_on;
+  doc["tank_low_float_wet"] = low_float_wet;
+  doc["tank_high_float_wet"] = high_float_wet;
+  doc["tank_low_level"] = !low_float_wet;
+  doc["tank_high_level"] = high_float_wet;
+  doc["tank_level_state"] = tank_level_state_name(
+    low_float_wet,
+    high_float_wet
+  );
   doc["uptime_ms"] = millis();
 
-  char payload[256];
+  char payload[384];
   size_t length =
     serializeJson(doc, payload, sizeof(payload));
 
@@ -1892,6 +1988,8 @@ void farm_task(void *parameter) {
   received_packet_t received = {};
 
   for (;;) {
+    update_float_switches(millis());
+
     if (
       xQueueReceive(
         received_packet_queue,
@@ -1941,6 +2039,8 @@ void setup() {
   digitalWrite(PUMP_RELAY_PIN, PUMP_RELAY_OFF);
   pinMode(PUMP_RELAY_PIN, OUTPUT);
   set_pump_control(false);
+
+  initialize_float_switches();
 
   analogReadResolution(12);
   pinMode(BATTERY_VOLTAGE_ADC_PIN, INPUT);

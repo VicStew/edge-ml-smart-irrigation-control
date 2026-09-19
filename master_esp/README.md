@@ -9,7 +9,8 @@ The embedded TensorFlow Lite rainfall model is intentionally disabled and its de
 The master uses both ESP32 cores:
 
 - `farm_task` runs on core 1 at priority 2. It drains a FreeRTOS queue of
-  ESP-NOW packets, updates sensor caches, and runs automatic irrigation.
+  ESP-NOW packets, updates sensor caches, debounces the tank float switches,
+  and runs automatic irrigation.
 - `cloud_task` runs on core 1 at priority 1. It owns TinyGSM, MQTT, shared
   attribute processing, and telemetry publication. `TINY_GSM_YIELD_MS` is
   set to 1 ms so TinyGSM's long polling operations block briefly and let the
@@ -44,10 +45,14 @@ TensorFlow Lite Micro is no longer required by the firmware.
 | SIM800L TX (ESP32 transmits) | GPIO 17 |
 | Battery voltage-divider output | GPIO 36 |
 | Pump relay control | GPIO 25 |
+| Tank low-level float switch | GPIO 32 |
+| Tank high-level float switch | GPIO 33 |
 
 Connect battery positive through R1 (8.2 kOhm) to GPIO36, connect R2 (1 kOhm) from GPIO36 to ground, and join battery and ESP32 grounds. The firmware applies the 9.2 divider ratio to a 16-sample averaged ADC reading. The theoretical source limit is 30.36 V at a 3.3 V ADC input; leave suitable margin for maximum charge voltage, resistor tolerance, and ADC range.
 
 GPIO25 only controls a suitable relay module or driver; it must not power the pump directly. The default relay logic is active-high. Change `PUMP_RELAY_ON` and `PUMP_RELAY_OFF` for an active-low relay. Firmware initialization forces the relay off before cloud control starts.
+
+Each two-wire float switch is wired between its GPIO and ground; the firmware enables the ESP32's internal pull-up resistors. `FLOAT_SWITCH_WET_STATE` defaults to `LOW`, meaning the reed contact is expected to close when water reaches the switch. Test each switch before installation because the float orientation can reverse its action; change this constant to `HIGH` if both installed switches present the opposite wet state. Inputs must never be connected directly to the tank or pump supply voltage.
 
 ## Setup
 
@@ -100,7 +105,19 @@ Section-node readings contain the same fields plus:
 
 The raw ADC values are retained alongside converted values. `valid_fields` bit 3 reports the generic solar/section divider measurement; bit 4 reports the sensor-node battery measurement. These extend the existing ambient, soil-moisture, and soil-temperature validity bits.
 
-The master publishes its own `battery_voltage_adc`, `battery_voltage_v`, `pump_control`, `pump_on`, and `uptime_ms` telemetry every five seconds.
+The master publishes its own battery, pump, tank-level, and uptime telemetry every five seconds.
+
+## Tank water-level monitoring
+
+Both float inputs use a 50 ms software debounce. Their telemetry keys are:
+
+- `tank_low_float_wet`: water has reached the low-mounted switch.
+- `tank_high_float_wet`: water has reached the high-mounted switch.
+- `tank_low_level`: water is below the low switch.
+- `tank_high_level`: water has reached the high switch.
+- `tank_level_state`: `low`, `normal`, `high`, or `sensor_fault`.
+
+The `sensor_fault` state means the high switch reports wet while the low switch reports dry, which is physically inconsistent when both switches are mounted correctly. The switches are monitoring inputs only; they do not automatically start or stop the pump.
 
 ## Automatic irrigation
 
