@@ -34,6 +34,7 @@ longer disconnects and changes MQTT identities when sensor traffic arrives.
 - TinyGSM
 - PubSubClient
 - ArduinoJson
+- DHTNEW
 
 TensorFlow Lite Micro is no longer required by the firmware.
 
@@ -44,6 +45,7 @@ TensorFlow Lite Micro is no longer required by the firmware.
 | SIM800L RX (ESP32 receives) | GPIO 16 |
 | SIM800L TX (ESP32 transmits) | GPIO 17 |
 | Battery voltage-divider output | GPIO 36 |
+| AM2301A data | GPIO 27 |
 | Pump relay control | GPIO 25 |
 | Tank low-level float switch | GPIO 32 |
 | Tank high-level float switch | GPIO 33 |
@@ -107,7 +109,17 @@ Section-node readings contain the same fields plus:
 
 The raw ADC values are retained alongside converted values. `valid_fields` bit 3 reports the generic solar/section divider measurement; bit 4 reports the sensor-node battery measurement. These extend the existing ambient, soil-moisture, and soil-temperature validity bits.
 
-The master publishes its own battery voltage, `battery_percentage`, low-level tank state, overall tank state, and uptime every five seconds. Pump state, high-float fields, and manual-control results are intentionally not emitted as telemetry.
+The master publishes its own AM2301A reading, battery voltage, `battery_percentage`, low-level tank state, pump state, and uptime every five seconds. Its ambient and pump telemetry keys are:
+
+- `ambient_sensor_valid`
+- `ambient_temperature_c`
+- `ambient_humidity_percent`
+- `pump_state` (the relay state actually applied)
+- `requested_pump_state` (the latest shared-attribute command)
+- `pump_manual_control`
+- `pump_control_mode` (`manual` or `autonomous`)
+
+Temperature and humidity are omitted from a sample when the AM2301A read fails; `ambient_sensor_valid` is still published as `false` so dashboards can identify the failed sample.
 
 ## Tank water-level monitoring
 
@@ -194,3 +206,5 @@ Set the boolean `manual_control` shared attribute on the master ThingsBoard devi
 ```
 
 With `manual_control` set to `false`, `pump_state` is remembered but does not override the float switches: the pump starts when the tank is below the low switch and remains on until water reaches the high switch. The master subscribes to live shared-attribute updates and requests both saved values after every MQTT connection. It boots in manual mode with the pump off as a fail-safe.
+
+The relay command is evaluated by the farm task approximately every 10 ms. The actual applied state is returned as the `pump_state` telemetry key on the next five-second master telemetry sample, allowing the ThingsBoard control workflow to confirm the relay state instead of treating the requested attribute as confirmation.

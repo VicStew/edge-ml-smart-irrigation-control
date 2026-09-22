@@ -11,6 +11,7 @@
 #define SerialAT Serial1
 
 #include <ArduinoJson.h>
+#include <dhtnew.h>
 #include <TinyGsmClient.h>
 #include <PubSubClient.h>
 
@@ -32,6 +33,7 @@
 #define SIM800_BAUD 9600
 
 #define BATTERY_VOLTAGE_ADC_PIN 36
+#define AM2301A_PIN 27
 #define PUMP_RELAY_PIN 25
 #define TANK_LOW_FLOAT_PIN 32
 #define TANK_HIGH_FLOAT_PIN 33
@@ -249,6 +251,7 @@ sensor_cache_t section_sensor_cache[MAX_SECTIONS];
 TinyGsm modem(SerialAT);
 TinyGsmClient gsm_client(modem);
 PubSubClient mqtt(gsm_client);
+DHTNEW ambient_sensor(AM2301A_PIN);
 
 typedef struct {
   bool gateway_device;
@@ -462,16 +465,46 @@ void read_master_battery_voltage(
   *voltage_v = adc_voltage_v * divider_ratio;
 }
 
+bool read_master_ambient(
+  float *temperature_c,
+  float *humidity_percent
+) {
+  *temperature_c = NAN;
+  *humidity_percent = NAN;
+
+  int result = ambient_sensor.read();
+
+  if (result != DHTLIB_OK) {
+    Serial.printf("Master AM2301A read failed: %d\n", result);
+    return false;
+  }
+
+  float temperature = ambient_sensor.getTemperature();
+  float humidity = ambient_sensor.getHumidity();
+
+  if (!isfinite(temperature) || !isfinite(humidity)) {
+    Serial.println("Master AM2301A returned invalid values");
+    return false;
+  }
+
+  *temperature_c = temperature;
+  *humidity_percent = humidity;
+  return true;
+}
+
 void set_pump_output(bool enabled) {
   if (pump_is_on == enabled) {
     return;
   }
 
-  pump_is_on = enabled;
   digitalWrite(
     PUMP_RELAY_PIN,
     enabled ? PUMP_RELAY_ON : PUMP_RELAY_OFF
   );
+
+  portENTER_CRITICAL(&farm_state_mux);
+  pump_is_on = enabled;
+  portEXIT_CRITICAL(&farm_state_mux);
 
   Serial.printf(
     "Water pump: %s\n",
@@ -811,16 +844,39 @@ void queue_section_status_telemetry(
 void queue_master_telemetry() {
   uint16_t battery_voltage_adc = 0;
   float battery_voltage_v = 0.0f;
+  float ambient_temperature_c = NAN;
+  float ambient_humidity_percent = NAN;
 
   read_master_battery_voltage(
     &battery_voltage_adc,
     &battery_voltage_v
   );
 
+  bool ambient_sensor_valid = read_master_ambient(
+    &ambient_temperature_c,
+    &ambient_humidity_percent
+  );
+
   bool low_float_wet = tank_low_float_wet;
   bool high_float_wet = tank_high_float_wet;
+  bool actual_pump_state;
+  bool requested_state;
+  bool manual_control;
 
-  StaticJsonDocument<384> doc;
+  portENTER_CRITICAL(&farm_state_mux);
+  actual_pump_state = pump_is_on;
+  requested_state = requested_pump_state;
+  manual_control = pump_manual_control;
+  portEXIT_CRITICAL(&farm_state_mux);
+
+  StaticJsonDocument<512> doc;
+  doc["ambient_sensor_valid"] = ambient_sensor_valid;
+
+  if (ambient_sensor_valid) {
+    doc["ambient_temperature_c"] = ambient_temperature_c;
+    doc["ambient_humidity_percent"] = ambient_humidity_percent;
+  }
+
   doc["battery_voltage_adc"] = battery_voltage_adc;
   doc["battery_voltage_v"] = battery_voltage_v;
   doc["battery_percentage"] = battery_percentage_from_voltage(
@@ -834,9 +890,14 @@ void queue_master_telemetry() {
     low_float_wet,
     high_float_wet
   );
+  doc["pump_state"] = actual_pump_state;
+  doc["requested_pump_state"] = requested_state;
+  doc["pump_manual_control"] = manual_control;
+  doc["pump_control_mode"] =
+    manual_control ? "manual" : "autonomous";
   doc["uptime_ms"] = millis();
 
-  char payload[384];
+  char payload[512];
   size_t length =
     serializeJson(doc, payload, sizeof(payload));
 
@@ -853,7 +914,7 @@ void queue_master_telemetry() {
       false
     )
   ) {
-    Serial.println("Master battery and tank telemetry queued");
+    Serial.println("Master telemetry queued");
   }
 }
 
@@ -2106,6 +2167,8 @@ void setup() {
   pump_is_on = false;
 
   initialize_float_switches();
+
+  ambient_sensor.setType(22);
 
   analogReadResolution(12);
   pinMode(BATTERY_VOLTAGE_ADC_PIN, INPUT);
